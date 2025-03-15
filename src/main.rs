@@ -104,14 +104,48 @@ async fn get_hitokoto(
     }
 }
 
+use clap::Parser;
+
+#[derive(Parser)]
+#[clap(version = env!("CARGO_PKG_VERSION"), about = "A simple hitokoto server in Rust")]
+struct Cli {
+    #[clap(
+        short = 'h',
+        long = "host",
+        value_name = "HOST",
+        default_value = "0.0.0.0:8000",
+        help = "Sets the server host address"
+    )]
+    host: String,
+
+    #[clap(
+        short = 'd',
+        long = "database",
+        value_name = "DATABASE",
+        default_value = "hitokoto.db",
+        help = "Sets the path to the SQLite database file"
+    )]
+    database: String,
+
+    #[clap(short = 'w', long = "workers", value_name = "WORKERS", default_value_t = num_cpus::get(), help = "Sets the number of worker threads")]
+    workers: usize,
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    let cli = Cli::parse();
+
+    let host = cli.host;
+    let database_path = cli.database;
+    let num_cpus = cli.workers;
+
     println!("Welcome to hitokoto-rust!");
     println!("Version: {}", env!("CARGO_PKG_VERSION"));
+    println!("Server running at http://{}", host);
 
     // 初始化数据库连接
     let conn = Arc::new(Mutex::new(
-        Connection::open("hitokoto.db").expect("Failed to open database"),
+        Connection::open(database_path).expect("Failed to open database"),
     ));
 
     // 启动服务器
@@ -122,8 +156,8 @@ async fn main() -> std::io::Result<()> {
             }))
             .service(get_hitokoto)
     })
-    .bind("0.0.0.0:8000")?
-    .workers(num_cpus::get())
+    .bind(host)?
+    .workers(num_cpus)
     .run()
     .await
 }
