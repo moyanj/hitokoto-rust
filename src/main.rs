@@ -61,37 +61,29 @@ async fn get_hitokoto(
     }
 
     // 执行查询
-    let query = format!("SELECT * FROM hitokoto WHERE {}", conditions.join(" AND "));
+    let query = format!(
+        "SELECT * FROM hitokoto WHERE {} ORDER BY RANDOM() LIMIT 1",
+        conditions.join(" AND ")
+    );
 
-    let hitokotos = {
+    let hitokoto = {
         let conn = data.db.lock().unwrap();
         let mut stmt = conn.prepare(&query).unwrap();
-        let hitokotos_iter = stmt
-            .query_map(rusqlite::params_from_iter(query_params), |row| {
-                Ok(Hitokoto {
-                    id: row.get(0)?,
-                    uuid: row.get(1)?,
-                    text: row.get(2)?,
-                    r#type: row.get(3)?,
-                    from: row.get(4)?,
-                    from_who: row.get(5)?,
-                    length: row.get(6)?,
-                })
+        stmt.query_row(rusqlite::params_from_iter(query_params), |row| {
+            Ok(Hitokoto {
+                id: row.get(0)?,
+                uuid: row.get(1)?,
+                text: row.get(2)?,
+                r#type: row.get(3)?,
+                from: row.get(4)?,
+                from_who: row.get(5)?,
+                length: row.get(6)?,
             })
-            .unwrap();
-
-        let mut hitokotos: Vec<Hitokoto> = hitokotos_iter.collect::<Result<Vec<_>, _>>().unwrap();
-        use rand::seq::SliceRandom;
-        let mut rng = rand::rng();
-        hitokotos.shuffle(&mut rng);
-        if !hitokotos.is_empty() {
-            Some(hitokotos.remove(0))
-        } else {
-            None
-        }
+        })
+        .ok()
     };
 
-    match hitokotos {
+    match hitokoto {
         Some(h) => match params.encode.as_deref() {
             Some("text") => Either::Left(
                 HttpResponse::Ok()
@@ -114,24 +106,13 @@ async fn get_hitokoto(
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    println!("Welcome to hitokoto-rust!");
+    println!("Version: {}", env!("CARGO_PKG_VERSION"));
+
     // 初始化数据库连接
     let conn = Arc::new(Mutex::new(
         Connection::open("hitokoto.db").expect("Failed to open database"),
     ));
-
-    // 创建数据表（示例用）
-    conn.lock()
-        .unwrap()
-        .execute(
-            "CREATE TABLE IF NOT EXISTS hitokoto (
-            id INTEGER PRIMARY KEY,
-            text TEXT NOT NULL,
-            length INTEGER,
-            type TEXT
-        )",
-            [],
-        )
-        .unwrap();
 
     // 启动服务器
     HttpServer::new(move || {
@@ -142,6 +123,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_hitokoto)
     })
     .bind("0.0.0.0:8000")?
+    .workers(num_cpus::get())
     .run()
     .await
 }
