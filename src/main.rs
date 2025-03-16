@@ -21,7 +21,7 @@ struct Hitokoto {
 // 查询参数结构
 #[derive(Deserialize)]
 struct QueryParams {
-    c: Option<Vec<String>>,
+    c: Option<String>,
     encode: Option<String>,
     min_length: Option<i32>,
     max_length: Option<i32>,
@@ -43,11 +43,15 @@ async fn get_hitokoto(
 
     // 构建查询条件
     if let Some(categories) = &params.c {
-        conditions.push(format!(
-            "type IN ({})",
-            categories.iter().map(|_| "?").collect::<Vec<_>>().join(",")
-        ));
-        query_params.extend(categories.iter().map(|c| Box::new(c) as _));
+        println!("categories: {:?}", categories);
+        let categories: Vec<&str> = categories.split(',').collect(); // 将字符串按逗号分隔为字符串向量
+        if !categories.is_empty() {
+            conditions.push(format!(
+                "type IN ({})",
+                categories.iter().map(|_| "?").collect::<Vec<_>>().join(",")
+            ));
+            query_params.extend(categories.iter().map(|c| Box::new(c.to_string()) as _));
+        }
     }
 
     if let Some(min) = params.min_length {
@@ -104,6 +108,45 @@ async fn get_hitokoto(
     }
 }
 
+// 新增路由处理函数，根据uuid查询Hitokoto
+#[get("/{uuid}")]
+async fn get_hitokoto_by_uuid(
+    data: web::Data<AppState>,
+    uuid: web::Path<String>,
+) -> impl Responder {
+    let query = "SELECT * FROM hitokoto WHERE uuid = ? LIMIT 1";
+
+    let hitokoto = {
+        let conn = data.db.lock().unwrap();
+        let mut stmt = conn.prepare(query).unwrap();
+        stmt.query_row(rusqlite::params![uuid.as_str()], |row| {
+            Ok(Hitokoto {
+                id: row.get(0)?,
+                uuid: row.get(1)?,
+                text: row.get(2)?,
+                r#type: row.get(3)?,
+                from: row.get(4)?,
+                from_who: row.get(5)?,
+                length: row.get(6)?,
+            })
+        })
+        .ok()
+    };
+
+    match hitokoto {
+        Some(h) => HttpResponse::Ok().json(serde_json::json!({
+            "id": h.id,
+            "text": h.text,
+            "length": h.length,
+            "type": h.r#type,
+            "from": h.from,
+            "from_who": h.from_who,
+            "uuid": h.uuid,
+        })),
+        None => HttpResponse::NotFound().body("No hitokoto found with the given uuid"),
+    }
+}
+
 use clap::Parser;
 
 #[derive(Parser)]
@@ -155,6 +198,7 @@ async fn main() -> std::io::Result<()> {
                 db: Arc::clone(&conn),
             }))
             .service(get_hitokoto)
+            .service(get_hitokoto_by_uuid) // 添加新的路由服务
     })
     .bind(host)?
     .workers(num_cpus)
