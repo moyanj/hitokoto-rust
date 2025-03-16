@@ -1,6 +1,6 @@
 # hitokoto-rust 🦀
 
-一个基于 Actix-web 和 sqlx 的高性能「一言」API 服务实现（原项目：[https://github.com/hitokoto-osc/hitokoto-api](https://github.com/hitokoto-osc/hitokoto-api)）。
+一个基于 Actix-web 和 sqlx 的高性能 Rust「一言」API 服务实现（原项目：[https://github.com/hitokoto-osc/hitokoto-api](https://github.com/hitokoto-osc/hitokoto-api)）。
 
 ## 功能特性
 
