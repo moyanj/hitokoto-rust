@@ -45,12 +45,12 @@ GET /
 ```
 
 ### 请求参数
-| 参数       | 类型     | 说明                                                                   |
-| ---------- | -------- | ---------------------------------------------------------------------- |
-| c          | string[] | 分类过滤（可选值：a-anime, b-comic, c-game, d-literature, e-original） |
-| encode     | string   | 返回格式（可选值：json/text，默认json）                                |
-| min_length | integer  | 最小字符长度限制                                                       |
-| max_length | integer  | 最大字符长度限制                                                       |
+| 参数       | 类型    | 说明                                                                                      |
+| ---------- | ------- | ----------------------------------------------------------------------------------------- |
+| c          | string  | 分类过滤，用逗号（`,`）分割（可选值：a-anime, b-comic, c-game, d-literature, e-original） |
+| encode     | string  | 返回格式（可选值：json/text，默认json）                                                   |
+| min_length | integer | 最小字符长度限制                                                                          |
+| max_length | integer | 最大字符长度限制                                                                          |
 
 ### 示例请求
 - 获取随机句子：`http://localhost:8000/`

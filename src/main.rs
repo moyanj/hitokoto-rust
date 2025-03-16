@@ -156,10 +156,19 @@ struct Cli {
         short = 'h',
         long = "host",
         value_name = "HOST",
-        default_value = "0.0.0.0:8000",
+        default_value = "0.0.0.0",
         help = "Sets the server host address"
     )]
     host: String,
+
+    #[clap(
+        short = 'p',
+        long = "port",
+        value_name = "PORT",
+        default_value_t = 8080,
+        help = "Sets the server port"
+    )]
+    port: u16,
 
     #[clap(
         short = 'd',
@@ -179,12 +188,15 @@ async fn main() -> std::io::Result<()> {
     let cli = Cli::parse();
 
     let host = cli.host;
+    let port = cli.port;
     let database_path = cli.database;
     let num_cpus = cli.workers;
 
+    let bind_addr = format!("{}:{}", host, port);
+
     println!("Welcome to hitokoto-rust!");
     println!("Version: {}", env!("CARGO_PKG_VERSION"));
-    println!("Server running at http://{}", host);
+    println!("Server running at http://{}", bind_addr);
 
     // 初始化数据库连接
     let conn = Arc::new(Mutex::new(
@@ -200,7 +212,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_hitokoto)
             .service(get_hitokoto_by_uuid) // 添加新的路由服务
     })
-    .bind(host)?
+    .bind(bind_addr)?
     .workers(num_cpus)
     .run()
     .await
