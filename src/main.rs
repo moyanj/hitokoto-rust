@@ -2,18 +2,18 @@
 use actix_web::{
     App, Either, HttpResponse, HttpServer, Responder, get, http::header::ContentType, web,
 };
-use rusqlite::Connection;
 use serde::Deserialize;
-use std::sync::{Arc, Mutex};
+use sqlx::FromRow;
+use sqlx::mysql::MySqlPool;
 
 // 数据库模型
-#[derive(Debug)]
+#[derive(Debug, FromRow)]
 struct Hitokoto {
     id: i32,
     uuid: String,
     text: String,
     r#type: String,
-    from: String,
+    from_source: String,
     from_who: Option<String>,
     length: i32,
 }
@@ -29,7 +29,7 @@ struct QueryParams {
 
 // 应用状态（数据库连接池）
 struct AppState {
-    db: Arc<Mutex<Connection>>,
+    db: MySqlPool,
 }
 
 // 主处理函数
@@ -39,7 +39,7 @@ async fn get_hitokoto(
     params: web::Query<QueryParams>,
 ) -> impl Responder {
     let mut conditions = vec!["1=1".to_string()];
-    let mut query_params: Vec<Box<dyn rusqlite::ToSql>> = vec![];
+    let mut query_params: Vec<String> = vec![];
 
     // 构建查询条件
     if let Some(categories) = &params.c {
@@ -50,42 +50,32 @@ async fn get_hitokoto(
                 "type IN ({})",
                 categories.iter().map(|_| "?").collect::<Vec<_>>().join(",")
             ));
-            query_params.extend(categories.iter().map(|c| Box::new(c.to_string()) as _));
+            query_params.extend(categories.iter().map(|c| c.to_string()));
         }
     }
 
     if let Some(min) = params.min_length {
         conditions.push("length >= ?".to_string());
-        query_params.push(Box::new(min));
+        query_params.push(min.to_string());
     }
 
     if let Some(max) = params.max_length {
         conditions.push("length <= ?".to_string());
-        query_params.push(Box::new(max));
+        query_params.push(max.to_string());
     }
 
     // 执行查询
     let query = format!(
-        "SELECT * FROM hitokoto WHERE {} ORDER BY RANDOM() LIMIT 1",
+        "SELECT * FROM hitokoto WHERE {} ORDER BY RAND() LIMIT 1",
         conditions.join(" AND ")
     );
 
-    let hitokoto = {
-        let conn = data.db.lock().unwrap();
-        let mut stmt = conn.prepare(&query).unwrap();
-        stmt.query_row(rusqlite::params_from_iter(query_params), |row| {
-            Ok(Hitokoto {
-                id: row.get(0)?,
-                uuid: row.get(1)?,
-                text: row.get(2)?,
-                r#type: row.get(3)?,
-                from: row.get(4)?,
-                from_who: row.get(5)?,
-                length: row.get(6)?,
-            })
-        })
-        .ok()
-    };
+    let mut query_builder = sqlx::query_as::<_, Hitokoto>(&query);
+    for param in query_params {
+        query_builder = query_builder.bind(param);
+    }
+
+    let hitokoto = query_builder.fetch_optional(&data.db).await.unwrap();
 
     match hitokoto {
         Some(h) => match params.encode.as_deref() {
@@ -99,7 +89,7 @@ async fn get_hitokoto(
                 "text": h.text,
                 "length": h.length,
                 "type": h.r#type,
-                "from": h.from,
+                "from": h.from_source,
                 "from_who": h.from_who,
                 "uuid": h.uuid,
             }))),
@@ -116,22 +106,11 @@ async fn get_hitokoto_by_uuid(
 ) -> impl Responder {
     let query = "SELECT * FROM hitokoto WHERE uuid = ? LIMIT 1";
 
-    let hitokoto = {
-        let conn = data.db.lock().unwrap();
-        let mut stmt = conn.prepare(query).unwrap();
-        stmt.query_row(rusqlite::params![uuid.as_str()], |row| {
-            Ok(Hitokoto {
-                id: row.get(0)?,
-                uuid: row.get(1)?,
-                text: row.get(2)?,
-                r#type: row.get(3)?,
-                from: row.get(4)?,
-                from_who: row.get(5)?,
-                length: row.get(6)?,
-            })
-        })
-        .ok()
-    };
+    let hitokoto = sqlx::query_as::<_, Hitokoto>(query)
+        .bind(uuid.as_str())
+        .fetch_optional(&data.db)
+        .await
+        .unwrap();
 
     match hitokoto {
         Some(h) => HttpResponse::Ok().json(serde_json::json!({
@@ -139,7 +118,7 @@ async fn get_hitokoto_by_uuid(
             "text": h.text,
             "length": h.length,
             "type": h.r#type,
-            "from": h.from,
+            "from": h.from_source,
             "from_who": h.from_who,
             "uuid": h.uuid,
         })),
@@ -174,8 +153,8 @@ struct Cli {
         short = 'd',
         long = "database",
         value_name = "DATABASE",
-        default_value = "hitokoto.db",
-        help = "Sets the path to the SQLite database file"
+        default_value = "mysql://root:yo12345678@localhost/hitokoto",
+        help = "Sets the MySQL database connection URL"
     )]
     database: String,
 
@@ -189,7 +168,7 @@ async fn main() -> std::io::Result<()> {
 
     let host = cli.host;
     let port = cli.port;
-    let database_path = cli.database;
+    let database_url = cli.database;
     let num_cpus = cli.workers;
 
     let bind_addr = format!("{}:{}", host, port);
@@ -198,19 +177,20 @@ async fn main() -> std::io::Result<()> {
     println!("Version: {}", env!("CARGO_PKG_VERSION"));
     println!("Server running at http://{}", bind_addr);
 
-    // 初始化数据库连接
-    let conn = Arc::new(Mutex::new(
-        Connection::open(database_path).expect("Failed to open database"),
-    ));
+    // 初始化数据库连接池
+    let pool = sqlx::mysql::MySqlPoolOptions::new()
+        .max_connections(100)
+        .min_connections(20)
+        .connect(&database_url)
+        .await
+        .unwrap();
 
     // 启动服务器
     HttpServer::new(move || {
         App::new()
-            .app_data(web::Data::new(AppState {
-                db: Arc::clone(&conn),
-            }))
+            .app_data(web::Data::new(AppState { db: pool.clone() }))
             .service(get_hitokoto)
-            .service(get_hitokoto_by_uuid) // 添加新的路由服务
+            .service(get_hitokoto_by_uuid)
     })
     .bind(bind_addr)?
     .workers(num_cpus)
