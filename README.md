@@ -1,6 +1,6 @@
 # hitokoto-rust 🦀
 
-一个基于 Actix-web 和 SQLite 的高性能「一言」API 服务实现（原项目：[https://github.com/hitokoto-osc/hitokoto-api](https://github.com/hitokoto-osc/hitokoto-api)）。
+一个基于 Actix-web 和 sqlx 的高性能「一言」API 服务实现（原项目：[https://github.com/hitokoto-osc/hitokoto-api](https://github.com/hitokoto-osc/hitokoto-api)）。
 
 ## 功能特性
 
@@ -33,7 +33,6 @@ cargo build --release
 # 自定义参数运行
 ./target/release/hitokoto-rust \
     --host 0.0.0.0:8080 \
-    --database /path/to/hitokoto.db \
     --workers 4
 ```
 
@@ -73,7 +72,7 @@ CREATE TABLE hitokoto (
 
 ## 性能特点
 - 🚀 基于 Actix-web 的高性能异步框架
-- 💾 使用 Rusqlite 进行高效 SQLite 操作
+- 💾 使用 sqlx 进行高效数据库操作
 - 🔄 多线程安全数据库访问
 - ⚡ 自动检测 CPU 核心数分配工作线程
 
