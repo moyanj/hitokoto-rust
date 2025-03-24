@@ -5,7 +5,6 @@ use actix_web::{
 use clap::Parser;
 use serde::Deserialize;
 use sqlx::FromRow;
-use sqlx::mysql::MySqlPool; // 添加错误类型导入
 use std::env;
 
 #[cfg(not(target_env = "msvc"))]
@@ -40,7 +39,7 @@ struct QueryParams {
 struct Cli {
     /// Server host address
     #[arg(
-        short,
+        short = 'H',
         long,
         value_name = "HOST",
         default_value = "0.0.0.0",
@@ -60,13 +59,13 @@ struct Cli {
     )]
     port: u16,
 
-    /// MySQL database connection URL
+    /// Database connection URL
     #[arg(
         short,
         long,
         value_name = "DATABASE_URL",
         default_value = "mysql://root:yo12345678@localhost/hitokoto",
-        help = "Sets the MySQL database connection URL",
+        help = "Sets the database connection URL",
         env = "HITOKOTO_DB"
     )]
     database: String,
@@ -95,8 +94,14 @@ struct Cli {
 }
 
 // 应用状态（数据库连接池）
-struct AppState {
-    db: MySqlPool,
+#[derive(Clone)]
+enum AppState {
+    #[cfg(feature = "mysql")]
+    MySql(sqlx::mysql::MySqlPool),
+    #[cfg(feature = "postgres")]
+    Postgres(sqlx::postgres::PgPool),
+    #[cfg(feature = "sqlite")]
+    Sqlite(sqlx::sqlite::SqlitePool),
 }
 
 #[actix_web::main]
@@ -116,16 +121,38 @@ async fn main() -> std::io::Result<()> {
     println!("Server running at http://{}", bind_addr);
 
     // 初始化数据库连接池，并设置最大连接数
-    let pool = sqlx::mysql::MySqlPoolOptions::new()
-        .max_connections(max_connections)
-        .connect(&database_url)
-        .await
-        .expect("Failed to connect to database");
+    let pool = match database_url.split(':').next() {
+        #[cfg(feature = "mysql")]
+        Some("mysql") => AppState::MySql(
+            sqlx::mysql::MySqlPoolOptions::new()
+                .max_connections(max_connections)
+                .connect(&database_url)
+                .await
+                .expect("Failed to connect to MySQL database"),
+        ),
+        #[cfg(feature = "postgres")]
+        Some("postgres") => AppState::Postgres(
+            sqlx::postgres::PgPoolOptions::new()
+                .max_connections(max_connections)
+                .connect(&database_url)
+                .await
+                .expect("Failed to connect to PostgreSQL database"),
+        ),
+        #[cfg(feature = "sqlite")]
+        Some("sqlite") => AppState::Sqlite(
+            sqlx::sqlite::SqlitePoolOptions::new()
+                .max_connections(max_connections)
+                .connect(&database_url)
+                .await
+                .expect("Failed to connect to SQLite database"),
+        ),
+        _ => panic!("Unsupported database type"),
+    };
 
     // 启动服务器
     HttpServer::new(move || {
         App::new()
-            .app_data(web::Data::new(AppState { db: pool.clone() }))
+            .app_data(web::Data::new(pool.clone()))
             .service(get_hitokoto)
             .service(get_hitokoto_by_uuid)
     })
@@ -135,19 +162,12 @@ async fn main() -> std::io::Result<()> {
     .await
 }
 
-// 主处理函数
-#[get("/")]
-async fn get_hitokoto(
-    data: web::Data<AppState>,
-    params: web::Query<QueryParams>,
-) -> impl Responder {
+fn build_query_conditions(params: &QueryParams) -> (String, Vec<String>) {
     let mut conditions = vec!["1=1".to_string()];
-    let mut query_params: Vec<String> = vec![];
+    let mut query_params = vec![];
 
-    // 构建查询条件
     if let Some(categories) = &params.c {
-        println!("categories: {:?}", categories);
-        let categories: Vec<&str> = categories.split(',').collect(); // 将字符串按逗号分隔为字符串向量
+        let categories: Vec<&str> = categories.split(',').collect();
         if !categories.is_empty() {
             conditions.push(format!(
                 "type IN ({})",
@@ -167,18 +187,58 @@ async fn get_hitokoto(
         query_params.push(max.to_string());
     }
 
-    // 执行查询
-    let query = format!(
-        "SELECT * FROM hitokoto WHERE {} ORDER BY RAND() LIMIT 1",
-        conditions.join(" AND ")
-    );
+    #[cfg(feature = "mysql")]
+    let rand = "RAND()".to_string();
+    #[cfg(feature = "postgres")]
+    let rand = "RANDOM()".to_string();
+    #[cfg(feature = "sqlite")]
+    let rand = "RANDOM()".to_string();
 
-    let mut query_builder = sqlx::query_as::<_, Hitokoto>(&query);
-    for param in query_params {
-        query_builder = query_builder.bind(param);
+    (
+        format!(
+            "SELECT * FROM hitokoto WHERE {} ORDER BY {} LIMIT 1",
+            conditions.join(" AND "),
+            rand,
+        ),
+        query_params,
+    )
+}
+
+// 主处理函数
+#[get("/")]
+async fn get_hitokoto(
+    data: web::Data<AppState>,
+    params: web::Query<QueryParams>,
+) -> impl Responder {
+    let (query, query_params) = build_query_conditions(&params);
+
+    let hitokoto = match &**data {
+        #[cfg(feature = "mysql")]
+        AppState::MySql(pool) => {
+            let mut q = sqlx::query_as::<_, Hitokoto>(&query);
+            for param in query_params.iter() {
+                q = q.bind(param.as_str());
+            }
+            q.fetch_optional(pool).await
+        }
+        #[cfg(feature = "postgres")]
+        AppState::Postgres(pool) => {
+            let mut q = sqlx::query_as::<_, Hitokoto>(&query);
+            for param in query_params.iter() {
+                q = q.bind(param.as_str());
+            }
+            q.fetch_optional(pool).await
+        }
+        #[cfg(feature = "sqlite")]
+        AppState::Sqlite(pool) => {
+            let mut q = sqlx::query_as::<_, Hitokoto>(&query);
+            for param in query_params.iter() {
+                q = q.bind(param.as_str());
+            }
+            q.fetch_optional(pool).await
+        } //_ => panic!("Unsupported database type"),
     }
-
-    let hitokoto = query_builder.fetch_optional(&data.db).await.map_err(|e| {
+    .map_err(|e| {
         eprintln!("Database query error: {}", e);
         HttpResponse::InternalServerError().body("Internal Server Error")
     });
@@ -213,14 +273,31 @@ async fn get_hitokoto_by_uuid(
 ) -> impl Responder {
     let query = "SELECT * FROM hitokoto WHERE uuid = ? LIMIT 1";
 
-    let hitokoto = sqlx::query_as::<_, Hitokoto>(query)
-        .bind(uuid.as_str())
-        .fetch_optional(&data.db)
-        .await
-        .map_err(|e| {
-            eprintln!("Database query error: {}", e);
-            HttpResponse::InternalServerError().body("Internal Server Error")
-        });
+    let hitokoto = match &**data {
+        #[cfg(feature = "mysql")]
+        AppState::MySql(pool) => {
+            sqlx::query_as::<sqlx::MySql, Hitokoto>(query)
+                .bind(&*uuid)
+                .fetch_optional(pool)
+                .await
+        }
+        #[cfg(feature = "postgres")]
+        AppState::Postgres(pool) => {
+            sqlx::query_as::<_, Hitokoto, _>(query, vec![&*uuid])
+                .fetch_optional(pool)
+                .await
+        }
+        #[cfg(feature = "sqlite")]
+        AppState::Sqlite(pool) => {
+            sqlx::query_as::<_, Hitokoto, _>(query, vec![&*uuid])
+                .fetch_optional(pool)
+                .await
+        } // _ => panic!("Unsupported database type"),
+    }
+    .map_err(|e| {
+        eprintln!("Database query error: {}", e);
+        HttpResponse::InternalServerError().body("Internal Server Error")
+    });
 
     match hitokoto {
         Ok(Some(h)) => HttpResponse::Ok().json(serde_json::json!({
