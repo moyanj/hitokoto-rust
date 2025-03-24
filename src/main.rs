@@ -6,6 +6,7 @@ use clap::Parser;
 use serde::Deserialize;
 use sqlx::FromRow;
 use sqlx::mysql::MySqlPool; // 添加错误类型导入
+use std::env;
 
 #[cfg(not(target_env = "msvc"))]
 use jemallocator::Jemalloc;
@@ -35,46 +36,62 @@ struct QueryParams {
 }
 
 #[derive(Parser)]
-#[clap(version = env!("CARGO_PKG_VERSION"), about = "A hitokoto server in Rust")]
+#[clap(name = "hitokoto-rust", version = env!("CARGO_PKG_VERSION"), about = "A hitokoto server in Rust", long_about = None)]
 struct Cli {
-    #[clap(
-        short = 'h',
-        long = "host",
+    /// Server host address
+    #[arg(
+        short,
+        long,
         value_name = "HOST",
         default_value = "0.0.0.0",
-        help = "Sets the server host address"
+        help = "Sets the server host address",
+        env = "HITOKOTO_HOST"
     )]
     host: String,
 
-    #[clap(
-        short = 'p',
-        long = "port",
+    /// Server port
+    #[arg(
+        short,
+        long,
         value_name = "PORT",
         default_value_t = 8080,
-        help = "Sets the server port"
+        help = "Sets the server port",
+        env = "HITOKOTO_PORT"
     )]
     port: u16,
 
-    #[clap(
-        short = 'd',
-        long = "database",
-        value_name = "DATABASE",
+    /// MySQL database connection URL
+    #[arg(
+        short,
+        long,
+        value_name = "DATABASE_URL",
         default_value = "mysql://root:yo12345678@localhost/hitokoto",
-        help = "Sets the MySQL database connection URL"
+        help = "Sets the MySQL database connection URL",
+        env = "HITOKOTO_DB"
     )]
     database: String,
 
-    #[clap(short = 'w', long = "workers", value_name = "WORKERS", default_value_t = num_cpus::get(), help = "Sets the number of worker threads")]
+    /// Number of worker threads
+    #[arg(
+        short,
+        long,
+        value_name = "WORKERS",
+        default_value_t = num_cpus::get(),
+        help = "Sets the number of worker threads",
+        env = "HITOKOTO_WORKERS"
+    )]
     workers: usize,
 
-    #[clap(
-        short = 'm',
-        long = "max-connections",
+    /// Maximum number of connections in the database pool
+    #[arg(
+        short,
+        long,
         value_name = "MAX_CONNECTIONS",
         default_value_t = 10,
-        help = "Sets the maximum number of connections in the database pool"
+        help = "Sets the maximum number of connections in the database pool",
+        env = "HITOKOTO_MAX_CONNECTIONS"
     )]
-    max_connections: u32, // 添加最大连接数参数
+    max_connections: u32,
 }
 
 // 应用状态（数据库连接池）
