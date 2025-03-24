@@ -7,6 +7,13 @@ use serde::Deserialize;
 use sqlx::FromRow;
 use sqlx::mysql::MySqlPool; // 添加错误类型导入
 
+#[cfg(not(target_env = "msvc"))]
+use jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 #[derive(Debug, FromRow)]
 struct Hitokoto {
     id: i32,
