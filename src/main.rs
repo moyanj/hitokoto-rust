@@ -22,6 +22,20 @@ struct Hitokoto {
     length: i32,
 }
 
+impl Hitokoto {
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id,
+            "text": self.text,
+            "length": self.length,
+            "type": self.r#type,
+            "from": self.from_source,
+            "from_who": self.from_who,
+            "uuid": self.uuid,
+        })
+    }
+}
+
 // 查询参数结构
 #[derive(Deserialize)]
 struct QueryParams {
@@ -159,7 +173,7 @@ async fn main() -> std::io::Result<()> {
     .await
 }
 
-fn build_query_conditions(params: &QueryParams) -> (String, Vec<String>) {
+fn build_query_conditions(params: &QueryParams, state: &AppState) -> (String, Vec<String>) {
     let mut conditions = vec!["1=1".to_string()];
     let mut query_params = vec![];
 
@@ -184,12 +198,11 @@ fn build_query_conditions(params: &QueryParams) -> (String, Vec<String>) {
         query_params.push(max.to_string());
     }
 
-    #[cfg(feature = "mysql")]
-    let rand = "RAND()".to_string();
-    #[cfg(feature = "postgres")]
-    let rand = "RANDOM()".to_string();
-    #[cfg(feature = "sqlite")]
-    let rand = "RANDOM()".to_string();
+    // 用运行时判断替换编译时条件
+    let rand = match state {
+        AppState::MySql(_) => "RAND()",
+        AppState::Postgres(_) | AppState::Sqlite(_) => "RANDOM()",
+    };
 
     (
         format!(
@@ -201,68 +214,74 @@ fn build_query_conditions(params: &QueryParams) -> (String, Vec<String>) {
     )
 }
 
-// 主处理函数
-#[get("/")]
-async fn get_hitokoto(
-    data: web::Data<AppState>,
-    params: web::Query<QueryParams>,
-) -> impl Responder {
-    let (query, query_params) = build_query_conditions(&params);
-
-    let hitokoto = match &**data {
+// 新增通用查询执行函数
+async fn execute_query_with_params(
+    state: &AppState,
+    query: &str,
+    params: &[&str],
+) -> Result<Option<Hitokoto>, sqlx::Error> {
+    match state {
         #[cfg(feature = "mysql")]
         AppState::MySql(pool) => {
-            let mut q = sqlx::query_as::<_, Hitokoto>(&query);
-            for param in query_params.iter() {
-                q = q.bind(param.as_str());
+            let mut q = sqlx::query_as::<_, Hitokoto>(query);
+            for param in params {
+                q = q.bind(param);
             }
             q.fetch_optional(pool).await
         }
         #[cfg(feature = "postgres")]
         AppState::Postgres(pool) => {
-            let mut q = sqlx::query_as::<_, Hitokoto>(&query);
-            for param in query_params.iter() {
-                q = q.bind(param.as_str());
+            let mut q = sqlx::query_as::<_, Hitokoto>(query);
+            for param in params {
+                q = q.bind(param);
             }
             q.fetch_optional(pool).await
         }
         #[cfg(feature = "sqlite")]
         AppState::Sqlite(pool) => {
-            let mut q = sqlx::query_as::<_, Hitokoto>(&query);
-            for param in query_params.iter() {
-                q = q.bind(param.as_str());
+            let mut q = sqlx::query_as::<_, Hitokoto>(query);
+            for param in params {
+                q = q.bind(param);
             }
             q.fetch_optional(pool).await
-        } //_ => panic!("Unsupported database type"),
+        }
     }
-    .map_err(|e| {
-        eprintln!("Database query error: {}", e);
-        HttpResponse::InternalServerError().body("Internal Server Error")
-    });
+}
+
+// 主处理函数修改
+#[get("/")]
+async fn get_hitokoto(
+    data: web::Data<AppState>,
+    params: web::Query<QueryParams>,
+) -> impl Responder {
+    // 传入AppState参数
+    let (query, query_params) = build_query_conditions(&params, data.get_ref());
+
+    // 将 query_params 转换为 &str 切片
+    let params_slice: Vec<&str> = query_params.iter().map(|s| s.as_str()).collect();
+    let hitokoto = execute_query_with_params(&data, &query, &params_slice)
+        .await
+        .map_err(|e| {
+            eprintln!("Database query error: {}", e);
+            HttpResponse::InternalServerError().body("Internal Server Error")
+        });
 
     match hitokoto {
         Ok(Some(h)) => match params.encode.as_deref() {
+            // 正确访问 encode 字段
             Some("text") => Either::Left(
                 HttpResponse::Ok()
                     .content_type(ContentType::plaintext())
                     .body(h.text),
             ),
-            _ => Either::Right(HttpResponse::Ok().json(serde_json::json!({
-                "id": h.id,
-                "text": h.text,
-                "length": h.length,
-                "type": h.r#type,
-                "from": h.from_source,
-                "from_who": h.from_who,
-                "uuid": h.uuid,
-            }))),
+            _ => Either::Right(HttpResponse::Ok().json(h.to_json())),
         },
         Ok(None) => Either::Right(HttpResponse::NotFound().body("No hitokoto found")),
         Err(_) => Either::Right(HttpResponse::InternalServerError().body("Internal Server Error")),
     }
 }
 
-// 新增路由处理函数，根据uuid查询Hitokoto
+// 新增路由处理函数修改
 #[get("/{uuid}")]
 async fn get_hitokoto_by_uuid(
     data: web::Data<AppState>,
@@ -270,42 +289,15 @@ async fn get_hitokoto_by_uuid(
 ) -> impl Responder {
     let query = "SELECT * FROM hitokoto WHERE uuid = ? LIMIT 1";
 
-    let hitokoto = match &**data {
-        #[cfg(feature = "mysql")]
-        AppState::MySql(pool) => {
-            sqlx::query_as::<sqlx::MySql, Hitokoto>(query)
-                .bind(&*uuid)
-                .fetch_optional(pool)
-                .await
-        }
-        #[cfg(feature = "postgres")]
-        AppState::Postgres(pool) => {
-            sqlx::query_as::<_, Hitokoto, _>(query, vec![&*uuid])
-                .fetch_optional(pool)
-                .await
-        }
-        #[cfg(feature = "sqlite")]
-        AppState::Sqlite(pool) => {
-            sqlx::query_as::<_, Hitokoto, _>(query, vec![&*uuid])
-                .fetch_optional(pool)
-                .await
-        } // _ => panic!("Unsupported database type"),
-    }
-    .map_err(|e| {
-        eprintln!("Database query error: {}", e);
-        HttpResponse::InternalServerError().body("Internal Server Error")
-    });
+    let hitokoto = execute_query_with_params(&data, query, &[uuid.as_str()])
+        .await
+        .map_err(|e| {
+            eprintln!("Database query error: {}", e);
+            HttpResponse::InternalServerError().body("Internal Server Error")
+        });
 
     match hitokoto {
-        Ok(Some(h)) => HttpResponse::Ok().json(serde_json::json!({
-            "id": h.id,
-            "text": h.text,
-            "length": h.length,
-            "type": h.r#type,
-            "from": h.from_source,
-            "from_who": h.from_who,
-            "uuid": h.uuid,
-        })),
+        Ok(Some(h)) => HttpResponse::Ok().json(h.to_json()),
         Ok(None) => HttpResponse::NotFound().body("No hitokoto found with the given uuid"),
         Err(_) => HttpResponse::InternalServerError().body("Internal Server Error"),
     }

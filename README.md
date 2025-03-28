@@ -106,13 +106,7 @@ CREATE TABLE hitokoto (
 ## 🧩 高级功能
 
 ### 连接池配置
-通过 `--max-connections` 控制连接池大小，建议设置为 `(workers * 2) + 1`
-
-### 性能调优
-```bash
-# 启用 jemalloc 内存分配器（非 Windows 系统）
-cargo build --release --features "jemalloc"
-```
+通过 `--max-connections` 控制连接池大小，建议设置为 `(workers * 2) + 1`W
 
 ## 📜 开源协议
 MIT License © 2024 MoYan
