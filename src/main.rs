@@ -3,6 +3,7 @@ use actix_web::{
     App, Either, HttpResponse, HttpServer, Responder, get, http::header::ContentType, web,
 };
 use clap::Parser;
+use rand::prelude::*;
 use serde::Deserialize;
 use sqlx::FromRow;
 use std::env;
@@ -201,7 +202,8 @@ fn build_query_conditions(params: &QueryParams, state: &AppState) -> (String, Ve
     // 用运行时判断替换编译时条件
     let rand = match state {
         AppState::MySql(_) => "RAND()",
-        AppState::Postgres(_) | AppState::Sqlite(_) => "RANDOM()",
+        #[warn(unreachable_patterns)]
+        _ => "RANDOM()",
     };
 
     (
@@ -248,37 +250,82 @@ async fn execute_query_with_params(
     }
 }
 
-// 主处理函数修改
+async fn rand_hitokoto_without_params(state: &AppState) -> Result<Option<Hitokoto>, sqlx::Error> {
+    // 定义获取总条数的查询
+    let count_query = "SELECT COUNT(*) FROM hitokoto";
+
+    // 根据 AppState 的具体变体执行查询
+    let count = match state {
+        #[cfg(feature = "mysql")]
+        AppState::MySql(pool) => {
+            sqlx::query_scalar::<_, i64>(count_query)
+                .fetch_one(pool)
+                .await?
+        }
+        #[cfg(feature = "postgres")]
+        AppState::Postgres(pool) => {
+            sqlx::query_scalar::<_, i64>(count_query)
+                .fetch_one(pool)
+                .await?
+        }
+        #[cfg(feature = "sqlite")]
+        AppState::Sqlite(pool) => {
+            sqlx::query_scalar::<_, i64>(count_query)
+                .fetch_one(pool)
+                .await?
+        }
+    };
+
+    if count == 0 {
+        return Ok(None);
+    }
+    // 生成随机索引
+    let rand_index = rand::rng().random_range(0..count);
+
+    // 构造带 OFFSET 的查询
+    let query = format!("SELECT * FROM hitokoto LIMIT 1 OFFSET {}", rand_index);
+
+    // 执行查询
+    execute_query_with_params(state, &query, &[]).await
+}
+
+fn make_response(
+    encode: Option<String>,
+    hitokoto: Result<Option<Hitokoto>, sqlx::Error>,
+) -> impl Responder {
+    match hitokoto {
+        Ok(Some(h)) => {
+            if encode == Some("text".to_string()) {
+                Either::Left(
+                    HttpResponse::Ok()
+                        .content_type(ContentType::plaintext())
+                        .body(h.text),
+                )
+            } else {
+                Either::Right(HttpResponse::Ok().json(h.to_json()))
+            }
+        }
+        Ok(None) => Either::Right(HttpResponse::NotFound().body("No hitokoto found")),
+        Err(_) => Either::Right(HttpResponse::InternalServerError().body("Internal Server Error")),
+    }
+}
+
 #[get("/")]
 async fn get_hitokoto(
     data: web::Data<AppState>,
     params: web::Query<QueryParams>,
 ) -> impl Responder {
-    // 传入AppState参数
-    let (query, query_params) = build_query_conditions(&params, data.get_ref());
-
-    // 将 query_params 转换为 &str 切片
-    let params_slice: Vec<&str> = query_params.iter().map(|s| s.as_str()).collect();
-    let hitokoto = execute_query_with_params(&data, &query, &params_slice)
-        .await
-        .map_err(|e| {
-            eprintln!("Database query error: {}", e);
-            HttpResponse::InternalServerError().body("Internal Server Error")
-        });
-
-    match hitokoto {
-        Ok(Some(h)) => match params.encode.as_deref() {
-            // 正确访问 encode 字段
-            Some("text") => Either::Left(
-                HttpResponse::Ok()
-                    .content_type(ContentType::plaintext())
-                    .body(h.text),
-            ),
-            _ => Either::Right(HttpResponse::Ok().json(h.to_json())),
-        },
-        Ok(None) => Either::Right(HttpResponse::NotFound().body("No hitokoto found")),
-        Err(_) => Either::Right(HttpResponse::InternalServerError().body("Internal Server Error")),
+    let encode = params.encode.clone();
+    if params.c.is_none() && params.min_length.is_none() && params.max_length.is_none() {
+        let hitokoto = rand_hitokoto_without_params(&data).await;
+        return make_response(encode, hitokoto);
     }
+
+    let (query, query_params) = build_query_conditions(&params, data.get_ref());
+    let params_slice: Vec<&str> = query_params.iter().map(|s| s.as_str()).collect();
+    let hitokoto = execute_query_with_params(&data, &query, &params_slice).await;
+
+    make_response(encode, hitokoto)
 }
 
 // 新增路由处理函数修改
