@@ -151,6 +151,18 @@ def fetch_category_data(
         return None
 
 
+def create_index(conn: pymysql.connections.Connection) -> None:
+    try:
+        cursor = conn.cursor()
+        cursor.execute("CREATE INDEX idx_type_length ON hitokoto (type, length)")
+        cursor.execute("CREATE UNIQUE INDEX idx_uuid ON hitokoto (uuid)")
+        conn.commit()
+        print("索引创建成功")
+    except Error as e:
+        print(f"创建索引失败: {e}")
+        conn.rollback()
+
+
 def main():
     # 初始化数据库
     conn = create_connection()
