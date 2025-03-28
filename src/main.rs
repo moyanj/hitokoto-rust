@@ -8,11 +8,13 @@ use serde::Deserialize;
 use sqlx::FromRow;
 use std::env;
 
-#[cfg(all(feature = "jemalloc", not(target_env = "msvc")))]
+#[cfg(all(feature = "mimalloc", not(target_env = "msvc")))]
 #[global_allocator]
-static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-#[derive(Debug, FromRow)]
+use simd_json::json;
+
+#[derive(FromRow)]
 struct Hitokoto {
     id: i32,
     uuid: String,
@@ -24,8 +26,8 @@ struct Hitokoto {
 }
 
 impl Hitokoto {
-    fn to_json(&self) -> serde_json::Value {
-        serde_json::json!({
+    fn to_json(&self) -> simd_json::OwnedValue {
+        json!({
             "id": self.id,
             "text": self.text,
             "length": self.length,

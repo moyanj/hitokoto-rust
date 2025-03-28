@@ -4,7 +4,6 @@ import requests
 from typing import Optional, Dict, List
 import pymysql
 from pymysql import Error
-from datetime import datetime
 
 
 # 类型定义
