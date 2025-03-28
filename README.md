@@ -122,4 +122,4 @@ CREATE TABLE hitokoto (
 - clap: 命令行参数解析
 
 ## 📜 开源协议
-MIT License © 2024 MoYan
+MIT License © 2025 MoYan
