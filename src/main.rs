@@ -11,7 +11,7 @@ use std::env;
 use std::sync::atomic::Ordering;
 
 mod db;
-use db::{DbState, get_pool};
+use db::{DbState, get_pool, load_data_to_memory};
 
 #[cfg(all(feature = "mimalloc", not(target_env = "msvc")))]
 #[global_allocator]
@@ -110,6 +110,15 @@ struct Cli {
         env = "HITOKOTO_MAX_CONNECTIONS"
     )]
     max_connections: u32,
+
+    /// Load data into memory SQLite database
+    #[arg(
+        short = 'M',
+        long,
+        help = "Load data into memory SQLite database",
+        env = "HITOKOTO_MEMORY"
+    )]
+    memory: bool,
 }
 
 #[actix_web::main]
@@ -120,7 +129,8 @@ async fn main() -> std::io::Result<()> {
     let port = cli.port;
     let database_url = cli.database;
     let num_cpus = cli.workers;
-    let max_connections = cli.max_connections; // 获取最大连接数
+    let max_connections = cli.max_connections;
+    let memory = cli.memory;
 
     let bind_addr = format!("{}:{}", host, port);
 
@@ -131,6 +141,13 @@ async fn main() -> std::io::Result<()> {
     let pool: DbState = get_pool(&database_url, max_connections, 10, 60)
         .await
         .unwrap();
+
+    let pool = if memory {
+        println!("Loading data into memory SQLite database...");
+        load_data_to_memory(&pool.pool).await.unwrap()
+    } else {
+        pool
+    };
 
     println!("Server running at http://{}", bind_addr);
     // 启动服务器
