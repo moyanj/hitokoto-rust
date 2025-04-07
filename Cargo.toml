@@ -4,11 +4,7 @@ version = "0.4.0"
 edition = "2024"
 
 [features]
-default = ["mysql"]
 mimalloc = ["dep:mimalloc"]
-mysql = ["sqlx/mysql"]
-postgres = ["sqlx/postgres"]
-sqlite = ["sqlx/sqlite"]
 
 [dependencies]
 actix-web = "4.10.2"
@@ -16,7 +12,7 @@ clap = { version = "4.5.32", features = ["derive", "env"] }
 num_cpus = "1.16.0"
 serde = { version = "1.0.219", features = ["derive"] }
 simd-json = "0.15.0"
-sqlx = { version = "0.6", features = ["runtime-tokio-rustls"] }
+sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "all-databases"] }
 mimalloc = { version = "0.1.44", optional = true }
 rand = "0.9.0"
 
