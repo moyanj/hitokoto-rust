@@ -1,4 +1,5 @@
-use crate::Hitokoto;
+use crate::{Hitokoto, QueryParams};
+use rand::prelude::*;
 use sqlx::any::{AnyKind, AnyPool, AnyPoolOptions};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
@@ -139,4 +140,70 @@ PRAGMA locking_mode = EXCLUSIVE; -- 独占锁（只读模式下无害）
         db_kind: AnyKind::Sqlite,
         count,
     })
+}
+
+pub fn build_query_conditions(params: &QueryParams, state: &DbState) -> (String, Vec<String>) {
+    let mut conditions = vec!["1=1".to_string()];
+    let mut query_params = vec![];
+
+    if let Some(categories) = &params.c {
+        let categories: Vec<&str> = categories.split(',').collect();
+        if !categories.is_empty() {
+            conditions.push(format!(
+                "type IN ({})",
+                categories.iter().map(|_| "?").collect::<Vec<_>>().join(",")
+            ));
+            query_params.extend(categories.iter().map(|c| c.to_string()));
+        }
+    }
+
+    if let Some(min) = params.min_length {
+        conditions.push("length >= ?".to_string());
+        query_params.push(min.to_string());
+    }
+
+    if let Some(max) = params.max_length {
+        conditions.push("length <= ?".to_string());
+        query_params.push(max.to_string());
+    }
+
+    // 用运行时判断替换编译时条件
+    let rand = match state.db_kind {
+        AnyKind::MySql => "RAND()",
+        _ => "RANDOM()",
+    };
+    (
+        format!(
+            "SELECT * FROM hitokoto WHERE {} ORDER BY {} LIMIT 1",
+            conditions.join(" AND "),
+            rand,
+        ),
+        query_params,
+    )
+}
+
+// 通用查询执行函数
+pub async fn execute_query_with_params(
+    state: &DbState,
+    query: &str,
+    params: &[&str],
+) -> Result<Option<Hitokoto>, sqlx::Error> {
+    let mut q = sqlx::query_as::<_, Hitokoto>(query);
+    for param in params {
+        q = q.bind(param);
+    }
+    q.fetch_optional(&state.pool).await
+}
+
+pub async fn rand_hitokoto_without_params(
+    state: &DbState,
+) -> Result<Option<Hitokoto>, sqlx::Error> {
+    // 生成随机索引
+    let rand_index = rand::rng().random_range(0..state.count.load(Ordering::Relaxed));
+
+    // 构造带 OFFSET 的查询
+    let query = format!("SELECT * FROM hitokoto LIMIT 1 OFFSET {}", rand_index);
+
+    // 执行查询
+    execute_query_with_params(state, &query, &[]).await
 }
