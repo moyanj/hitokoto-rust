@@ -49,9 +49,7 @@ jobs:
       # 构建步骤
       - name: Build Release
         run: |
-          cargo build --target ${{ matrix.target }} --release --all-features \
-            --config profile.release.lto=true \
-            --config profile.release.codegen-units=1
+          cargo build --target ${{ matrix.target }} --release --all-features --config profile.release.lto=true --config profile.release.codegen-units=1
           ls -lh target/${{ matrix.target }}/release/
       
       # 二进制优化 (Linux)
