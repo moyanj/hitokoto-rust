@@ -163,7 +163,11 @@ async fn main() -> std::io::Result<()> {
     } else {
         pool
     };
-
+    if use_limiter {
+        println!("Using Limiter with rate {} per second", limiter_rate);
+    } else {
+        println!("Not using Limiter");
+    }
     println!("Server running at http://{}", bind_addr);
 
     let app_factory = move || {
@@ -171,7 +175,6 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(pool.clone()));
 
         let app = if use_limiter {
-            println!("Using Limiter with rate {}", limiter_rate);
             let governor_conf = GovernorConfigBuilder::default()
                 .requests_per_second(limiter_rate)
                 .burst_size((limiter_rate as f32 * 1.8).ceil() as u32)
