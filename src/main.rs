@@ -11,6 +11,8 @@ use std::sync::atomic::Ordering;
 mod db;
 use db::*;
 
+use actix_governor::{Governor, GovernorConfigBuilder};
+
 #[cfg(all(feature = "mimalloc", not(target_env = "msvc")))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -117,6 +119,19 @@ struct Cli {
         env = "HITOKOTO_MEMORY"
     )]
     memory: bool,
+
+    // Use Limiter
+    #[arg(long, help = "Use Limiter", env = "HITOKOTO_LIMITER")]
+    limiter: bool,
+
+    // Limiter Rate
+    #[arg(
+        long,
+        default_value_t = 100,
+        help = "Limiter Rate",
+        env = "HITOKOTO_LIMITER_RATE"
+    )]
+    limiter_rate: u64,
 }
 
 #[actix_web::main]
@@ -129,6 +144,8 @@ async fn main() -> std::io::Result<()> {
     let num_cpus = cli.workers;
     let max_connections = cli.max_connections;
     let memory = cli.memory;
+    let use_limiter = cli.limiter;
+    let limiter_rate = cli.limiter_rate;
 
     let bind_addr = format!("{}:{}", host, port);
 
@@ -148,18 +165,39 @@ async fn main() -> std::io::Result<()> {
     };
 
     println!("Server running at http://{}", bind_addr);
-    // 启动服务器
-    HttpServer::new(move || {
-        App::new()
-            .app_data(web::Data::new(pool.clone()))
-            .service(get_hitokoto)
+
+    let app_factory = move || {
+        let app = App::new() // 显式声明App基础类型
+            .app_data(web::Data::new(pool.clone()));
+
+        let app = if use_limiter {
+            println!("Using Limiter with rate {}", limiter_rate);
+            let governor_conf = GovernorConfigBuilder::default()
+                .requests_per_second(limiter_rate)
+                .burst_size((limiter_rate as f32 * 1.8).ceil() as u32)
+                .finish()
+                .unwrap();
+            app.wrap(Governor::new(&governor_conf))
+        } else {
+            app.wrap(Governor::new(
+                &GovernorConfigBuilder::default()
+                    .permissive(true)
+                    .finish()
+                    .unwrap(),
+            ))
+        };
+
+        app.service(get_hitokoto)
             .service(update_count)
             .service(get_hitokoto_by_uuid)
-    })
-    .bind(bind_addr)?
-    .workers(num_cpus)
-    .run()
-    .await
+    };
+
+    // 启动服务器
+    HttpServer::new(app_factory)
+        .bind(bind_addr)?
+        .workers(num_cpus)
+        .run()
+        .await
 }
 
 fn make_response(
