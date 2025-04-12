@@ -3,7 +3,6 @@ use actix_web::{
     App, Either, HttpResponse, HttpServer, Responder, get, http::header::ContentType, web,
 };
 use clap::Parser;
-use serde::Deserialize;
 use sqlx::FromRow;
 use std::env;
 use std::sync::atomic::Ordering;
@@ -17,8 +16,6 @@ use actix_governor::{Governor, GovernorConfigBuilder};
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use simd_json::json;
-
 #[derive(FromRow)]
 struct Hitokoto {
     id: i32,
@@ -31,21 +28,27 @@ struct Hitokoto {
 }
 
 impl Hitokoto {
-    fn to_json(&self) -> simd_json::OwnedValue {
-        json!({
-            "id": self.id,
-            "text": self.text,
-            "length": self.length,
-            "type": self.r#type,
-            "from": self.from_source,
-            "from_who": self.from_who,
-            "uuid": self.uuid,
-        })
+    pub fn to_json(&self) -> String {
+        let from_who = match &self.from_who {
+            Some(who) => format!("\"{}\"", who),
+            None => "null".to_string(),
+        };
+
+        format!(
+            r#"{{"id":{},"uuid":"{}","text":"{}","type":"{}","from":"{}","from_who":{},"length":{}}}"#,
+            self.id,
+            self.uuid,
+            self.text.replace('"', "\\\""), // 转义双引号
+            self.r#type,
+            self.from_source.replace('"', "\\\""),
+            from_who,
+            self.length
+        )
     }
 }
 
 // 查询参数结构
-#[derive(Deserialize)]
+#[derive(serde::Deserialize)]
 struct QueryParams {
     c: Option<String>,
     encode: Option<String>,
@@ -55,6 +58,7 @@ struct QueryParams {
 
 #[derive(Parser)]
 #[clap(name = "hitokoto-rust", version = env!("CARGO_PKG_VERSION"), about = "A hitokoto server in Rust", long_about = None)]
+
 struct Cli {
     /// Server host address
     #[arg(
@@ -216,7 +220,11 @@ fn make_response(
                         .body(h.text),
                 )
             } else {
-                Either::Right(HttpResponse::Ok().json(h.to_json()))
+                Either::Right(
+                    HttpResponse::Ok()
+                        .content_type(ContentType::json())
+                        .body(h.to_json()),
+                )
             }
         }
         Ok(None) => Either::Right(HttpResponse::NotFound().body("No hitokoto found")),
