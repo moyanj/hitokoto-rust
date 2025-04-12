@@ -23,17 +23,10 @@
 
 ### 编译选项
 ```bash
-# 默认编译（MySQL 特性）
 cargo build --release 
 
-# PostgreSQL 版本
-cargo build --release --features "postgres"
-
-# SQLite 版本
-cargo build --release --features "sqlite"
-
-# 全特性编译
-cargo build --release --all-features
+# 带mimalloc的编译
+cargo build --release --features mimalloc
 ```
 
 ### 快速启动
@@ -53,13 +46,15 @@ HITOKOTO_DB="mysql://user:pass@localhost/hitokoto" \
 
 ## ⚙️ 配置项
 
-| 参数                | 环境变量                 | 默认值                                   | 说明                   |
-| ------------------- | ------------------------ | ---------------------------------------- | ---------------------- |
-| `--host`            | HITOKOTO_HOST            | 0.0.0.0                                  | 监听地址               |
-| `--port`            | HITOKOTO_PORT            | 8080                                     | 监听端口               |
-| `--database`        | HITOKOTO_DB              | mysql://root:password@localhost/hitokoto | 数据库连接字符串       |
-| `--workers`         | HITOKOTO_WORKERS         | CPU 核心数                               | 工作线程数             |
-| `--max-connections` | HITOKOTO_MAX_CONNECTIONS | 10                                       | 数据库连接池最大连接数 |
+| 参数             | 环境变量              | 默认值                                   | 说明                                     |
+| ---------------- | --------------------- | ---------------------------------------- | ---------------------------------------- |
+| `--host/-h`      | HITOKOTO_HOST         | 0.0.0.0                                  | 监听地址                                 |
+| `--port/-p`      | HITOKOTO_PORT         | 8080                                     | 监听端口                                 |
+| `--database/-d`  | HITOKOTO_DB           | mysql://root:password@localhost/hitokoto | 数据库连接字符串                         |
+| `--workers/-w`   | HITOKOTO_WORKERS      | CPU 核心数                               | 工作线程数                               |
+| `--memory/-M`    | HITOKOTO_MEMORY       | False                                    | 是否将数据全部加载至内存（极大提升性能） |
+| `--limiter`      | HITOKOTO_LIMITER      | False                                    | 是否使用限流器                           |
+| `--limiter_rate` | HITOKOTO_LIMITER_RATE | 10                                       | 限流器速率（每秒请求数）                 |
 
 ## 📡 API 文档
 
@@ -104,12 +99,14 @@ CREATE TABLE hitokoto (
 
 ## 🧩 高级配置
 
+### 全部加载至内存
+
 ### 连接池调优
 通过 `--max-connections` 设置连接池大小，推荐公式：  
 `max_connections = (workers * 2) + 1`
 
 ### 内存分配器
-默认使用 mimalloc 作为全局分配器（非 MSVC 环境），可通过 `--no-default-features` 禁用
+可以使用 mimalloc 作为全局分配器（非 MSVC 环境）
 
 ### 线程数调优
 通过 `--workers` 设置工作线程数，默认为 CPU 核心数
