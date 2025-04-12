@@ -56,7 +56,7 @@ jobs:
       - name: Strip binaries (Linux)
         if: contains(matrix.target, 'linux') && runner.os == 'Linux'
         run: |
-          strip target/${{ matrix.target }}/release/*
+          strip target/${{ matrix.target }}/release/hitokoto-rust
       
       # 上传制品
       - name: Upload artifacts
