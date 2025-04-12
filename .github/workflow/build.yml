@@ -1,0 +1,71 @@
+name: Rust Release Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-C lto=fat"  # 启用LTO和CPU优化
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: 
+          - x86_64-unknown-linux-gnu
+          - x86_64-pc-windows-msvc
+          - x86_64-unknown-linux-musl
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      # 安装 musl-tools (仅 musl 目标需要)
+      - name: Install musl-tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      
+      # 安装 Rust stable 工具链
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: rust-src  # 为LTO提供必要组件
+      
+      # 缓存优化
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      # 构建步骤
+      - name: Build Release
+        run: |
+          cargo build --target ${{ matrix.target }} --release --all-features \
+            --config profile.release.lto=true \
+            --config profile.release.codegen-units=1
+          ls -lh target/${{ matrix.target }}/release/
+      
+      # 二进制优化 (Linux)
+      - name: Strip binaries
+        if: contains(matrix.target, 'linux')
+        run: |
+          strip target/${{ matrix.target }}/release/*
+      
+      # 上传制品
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/hitokoto-rust*
+            !target/${{ matrix.target }}/release/hitokoto-rust.d
+          if-no-files-found: error
