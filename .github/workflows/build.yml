@@ -3,8 +3,17 @@ name: Rust Release Build
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/**'
   pull_request:
     branches: [ main ]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/**'
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always

@@ -21,6 +21,13 @@
 
 ## 🛠️ 安装与运行
 
+### Github Actions 预编译
+
+我们提供了以下目标的预编译版本，可在 [Actions](https://github.com/moyanj/hitokoto-rust/actions/workflows/build.yml) 中下载：
+- `x86_64-unknown-linux-gnu`
+- `x86_64-pc-windows-msvc`
+- `x86_64-unknown-linux-musl`
+
 ### 编译选项
 ```bash
 cargo build --release 
@@ -100,6 +107,7 @@ CREATE TABLE hitokoto (
 ## 🧩 高级配置
 
 ### 全部加载至内存
+添加 `--memory`/`-M` 参数，将所有数据加载至内存SQLite数据库，通常可以提高3-10x的性能。
 
 ### 连接池调优
 通过 `--max-connections` 设置连接池大小，推荐公式：  
