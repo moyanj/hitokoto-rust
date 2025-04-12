@@ -50,7 +50,7 @@ jobs:
       - name: Build Release
         run: |
           cargo build --target ${{ matrix.target }} --release --all-features --config profile.release.lto=true --config profile.release.codegen-units=1
-          ls -lh target/${{ matrix.target }}/release/
+          ls target/${{ matrix.target }}/release/
       
       # 二进制优化 (Linux)
       - name: Strip binaries (Linux)
