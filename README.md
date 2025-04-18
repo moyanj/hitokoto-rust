@@ -4,7 +4,7 @@
 
 ## 🚀 功能特性
 
-- **多数据库支持**：原生支持 MySQL/PostgreSQL/SQLite（通过编译特性切换）
+- **多数据库支持**：原生支持 MySQL/SQLite（通过编译特性切换）
 - **极致性能**：基于 Actix-web 异步框架 + SQLx 零成本抽象
 - **动态配置**：支持线程数、连接池、监听地址等运行时参数
 - **智能过滤**：分类组合/长度范围/返回格式控制
@@ -16,7 +16,6 @@
 - Rust 1.65+ 工具链
 - 数据库（任选其一）：
   - MySQL 5.7+ / MariaDB 10.3+
-  - PostgreSQL 12+
   - SQLite 3.35+
 
 ## 🛠️ 安装与运行
@@ -46,7 +45,7 @@ HITOKOTO_DB="mysql://user:pass@localhost/hitokoto" \
 ./target/release/hitokoto-rust \
     --host 0.0.0.0 \
     --port 8080 \
-    --database "postgres://user:pass@localhost/hitokoto" \
+    --database "sqlite://./hitokoto.db" \
     --workers 8 \
     --max-connections 20
 ```
