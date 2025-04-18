@@ -4,7 +4,9 @@ version = "0.5.0"
 edition = "2024"
 
 [features]
+default = ["mimalloc", "init"]
 mimalloc = ["dep:mimalloc"]
+init = ["dep:reqwest", "dep:serde_json"]
 
 [dependencies]
 actix-web = "4.10.2"
@@ -15,6 +17,13 @@ sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "all-databases"] }
 mimalloc = { version = "0.1.44", optional = true }
 rand = "0.9.0"
 actix-governor = "0.8.0"
+reqwest = { version = "0.12.15", default-features = false, features = [
+    "rustls-tls",
+    "json",
+    "gzip",
+], optional = true }
+serde_json = { version = "1.0.140", optional = true }
+
 
 [profile.release]
 panic = "abort"

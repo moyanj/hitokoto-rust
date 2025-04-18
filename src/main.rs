@@ -8,6 +8,7 @@ use std::env;
 use std::sync::atomic::Ordering;
 
 mod db;
+mod init;
 use db::*;
 
 use actix_governor::{Governor, GovernorConfigBuilder};
@@ -58,7 +59,6 @@ struct QueryParams {
 
 #[derive(Parser)]
 #[clap(name = "hitokoto-rust", version = env!("CARGO_PKG_VERSION"), about = "A hitokoto server in Rust", long_about = None)]
-
 struct Cli {
     /// Server host address
     #[arg(
@@ -136,6 +136,10 @@ struct Cli {
         env = "HITOKOTO_LIMITER_RATE"
     )]
     limiter_rate: u64,
+
+    #[cfg(feature = "init")]
+    #[arg(long, help = "Initialize database")]
+    init: bool,
 }
 
 #[actix_web::main]
@@ -155,6 +159,14 @@ async fn main() -> std::io::Result<()> {
 
     println!("Welcome to hitokoto-rust!");
     println!("Version: {}", env!("CARGO_PKG_VERSION"));
+
+    #[cfg(feature = "init")]
+    if cli.init {
+        println!("Initializing database...");
+        init::init_db(&database_url).await;
+        println!("Database initialized.");
+        return Ok(());
+    }
 
     // 初始化数据库连接池，并设置最大连接数
     let pool: DbState = get_pool(&database_url, max_connections, 10, 60)

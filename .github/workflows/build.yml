@@ -7,6 +7,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'src/**'
+      - '.github/workflows/build.yml'
   pull_request:
     branches: [ main ]
     paths:
