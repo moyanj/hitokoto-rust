@@ -163,7 +163,7 @@ async fn main() -> std::io::Result<()> {
     #[cfg(feature = "init")]
     if cli.init {
         println!("Initializing database...");
-        init::init_db(&database_url).await;
+        let _ = init::init_db(&database_url).await;
         println!("Database initialized.");
         return Ok(());
     }

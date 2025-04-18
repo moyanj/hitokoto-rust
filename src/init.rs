@@ -167,20 +167,27 @@ async fn get_pool(db_url: &String) -> Result<AnyPool, sqlx::Error> {
         .connect(db_url)
         .await?;
 
+    let auto_incerment = match pool.any_kind() {
+        sqlx::any::AnyKind::Sqlite => "AUTOINCREMENT",
+        sqlx::any::AnyKind::MySql => "AUTO_INCREMENT",
+        _ => "AUTO_INCREMENT",
+    };
+
     // 创建表结构
-    sqlx::query(
+    sqlx::query(&format!(
         r#"
-        CREATE TABLE IF NOT EXISTS hitokoto (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            uuid VARCHAR(36) UNIQUE NOT NULL,
-            text TEXT NOT NULL,
-            type VARCHAR(1) NOT NULL,
-            from_source TEXT NOT NULL,
-            from_who TEXT,
-            length INT NOT NULL
-        )
-        "#,
+    CREATE TABLE IF NOT EXISTS hitokoto (
+        id INT PRIMARY KEY {},
+        uuid VARCHAR(36) UNIQUE NOT NULL,
+        text TEXT NOT NULL,
+        type VARCHAR(1) NOT NULL,
+        from_source TEXT NOT NULL,
+        from_who TEXT,
+        length INT NOT NULL
     )
+    "#,
+        auto_incerment
+    ))
     .execute(&pool)
     .await?;
 
