@@ -23,6 +23,7 @@ reqwest = { version = "0.12.15", default-features = false, features = [
     "gzip",
 ], optional = true }
 serde_json = { version = "1.0.140", optional = true }
+sea-query = "0.32.4"
 
 
 [profile.release]
