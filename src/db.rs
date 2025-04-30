@@ -119,16 +119,6 @@ pub async fn load_data_to_memory(pool: &AnyPool) -> Result<DbState, sqlx::Error>
         .execute(&memory_pool)
         .await?;
 
-    // 设置PRAGMA
-    sqlx::query(
-        "PRAGMA journal_mode = MEMORY;  -- 内存日志模式
-PRAGMA synchronous = OFF;      -- 禁用同步写入
-PRAGMA locking_mode = EXCLUSIVE; -- 独占锁（只读模式下无害）
-",
-    )
-    .execute(&memory_pool)
-    .await?;
-
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM hitokoto")
         .fetch_one(&memory_pool)
         .await?;

@@ -1,5 +1,6 @@
 use actix_web::Error;
 use serde::{Deserialize, Serialize};
+use sqlx::migrate::MigrateDatabase;
 use sqlx::{AnyPool, any::AnyPoolOptions};
 use std::{fs, io::Write};
 
@@ -9,7 +10,7 @@ const CACHE_DIR: &str = "./cache";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct VersionData {
-    updated_at: i32,
+    updated_at: i64,
     sentences: Vec<CategoryMeta>,
 }
 
@@ -17,7 +18,7 @@ struct VersionData {
 struct CategoryMeta {
     key: String,
     name: String,
-    timestamp: i32,
+    timestamp: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -33,7 +34,7 @@ struct Sentence {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct CategoryData {
-    timestamp: i32,
+    timestamp: i64,
     sentences: Vec<Sentence>,
 }
 
@@ -61,7 +62,7 @@ pub async fn init_db(db_url: &str) -> Result<(), Error> {
 
     // 创建索引
     create_indexes(&pool).await.unwrap();
-
+    pool.close().await;
     println!("\n操作完成，总计处理 {} 条记录", total_inserted);
 
     Ok(())
@@ -70,7 +71,7 @@ pub async fn init_db(db_url: &str) -> Result<(), Error> {
 async fn fetch_category_data(
     key: &String,
     name: &String,
-    timestamp: i32,
+    timestamp: i64,
 ) -> Result<Vec<Sentence>, Error> {
     let cache_path = std::path::Path::new(CACHE_DIR).join(format!("{}.json", key));
 
@@ -79,7 +80,7 @@ async fn fetch_category_data(
         let cached_data: CategoryData = serde_json::from_str(&cached_content)?;
 
         // 检查缓存是否需要更新
-        if timestamp > cached_data.timestamp {
+        if timestamp <= cached_data.timestamp {
             println!("缓存的 {} 数据是最新的，无需更新", name);
             return Ok(cached_data.sentences);
         }
@@ -160,10 +161,19 @@ async fn get_version() -> Result<VersionData, reqwest::Error> {
     Ok(version_data)
 }
 
-async fn get_pool(db_url: &String) -> Result<AnyPool, sqlx::Error> {
+async fn get_pool(db_url: &str) -> Result<AnyPool, sqlx::Error> {
+    // 检查是否是 SQLite 数据库连接
+    if db_url.starts_with("sqlite:") {
+        // 检查数据库是否存在，不存在则创建
+        if sqlx::sqlite::Sqlite::database_exists(db_url).await? {
+            sqlx::sqlite::Sqlite::drop_database(db_url).await?;
+        }
+        sqlx::sqlite::Sqlite::create_database(db_url).await?;
+    }
+
     // 创建数据库连接池
     let pool = AnyPoolOptions::new()
-        .max_connections(5)
+        .max_connections(1)
         .connect(db_url)
         .await?;
 
@@ -171,23 +181,18 @@ async fn get_pool(db_url: &String) -> Result<AnyPool, sqlx::Error> {
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS hitokoto (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            uuid VARCHAR(36) UNIQUE NOT NULL,
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uuid TEXT UNIQUE NOT NULL,
             text TEXT NOT NULL,
-            type VARCHAR(1) NOT NULL,
+            type TEXT NOT NULL,
             from_source TEXT NOT NULL,
             from_who TEXT,
-            length INT NOT NULL
+            length INTEGER NOT NULL
         )
         "#,
     )
     .execute(&pool)
     .await?;
-
-    // 清除旧数据
-    sqlx::query("TRUNCATE TABLE hitokoto")
-        .execute(&pool)
-        .await?;
 
     Ok(pool)
 }
