@@ -62,7 +62,8 @@ HITOKOTO_DB="mysql://user:pass@localhost/hitokoto" \
 | `--memory/-m`    | HITOKOTO_MEMORY       | False                                    | 是否将数据全部加载至内存（极大提升性能） |
 | `--limiter`      | HITOKOTO_LIMITER      | False                                    | 是否使用限流器                           |
 | `--limiter_rate` | HITOKOTO_LIMITER_RATE | 10                 |限流器速率（每秒请求数）
-|`--max-connections`| HITOKOTO_MAX_CONNECTIONS | 10                                   |限流器速率（每秒请求数）                 |
+|`--max-connections`| HITOKOTO_MAX_CONNECTIONS | 10                                   | 最大数据库连接数                 |
+| `--init`         | -                     | False                                    | 初始化数据库                          |
 
 ## 📡 API 文档
 
@@ -93,16 +94,15 @@ GET /{uuid}
 
 ## 🗄️ 数据库结构
 ```sql
--- 通用表结构（适配不同数据库语法）
-CREATE TABLE hitokoto (
-    id          INT PRIMARY KEY,
-    uuid        VARCHAR(36) UNIQUE NOT NULL,
-    text        TEXT NOT NULL,
-    type        VARCHAR(1) NOT NULL,  -- 分类标识
-    from_source VARCHAR(255) NOT NULL,
-    from_who    VARCHAR(255),
-    length      INT NOT NULL
-);
+CREATE TABLE IF NOT EXISTS hitokoto (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid TEXT UNIQUE NOT NULL,
+    text TEXT NOT NULL,
+    type TEXT NOT NULL,
+    from_source TEXT NOT NULL,
+    from_who TEXT,
+    length INTEGER NOT NULL
+)
 ```
 
 ## 🧩 高级配置

@@ -63,7 +63,7 @@ struct QueryParams {
 struct Cli {
     /// Server host address
     #[arg(
-        short,
+        short='H',
         long,
         value_name = "HOST",
         default_value = "0.0.0.0",
@@ -165,7 +165,6 @@ async fn main() -> std::io::Result<()> {
         println!("Initializing database...");
         init::init_db(&database_url).await.unwrap();
         println!("Database initialized.");
-        return Ok(());
     }
 
     // 初始化数据库连接池，并设置最大连接数

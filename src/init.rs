@@ -11,7 +11,7 @@ const CACHE_DIR: &str = "./cache";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct VersionData {
-    updated_at: u32,
+    updated_at: u64,
     sentences: Vec<CategoryMeta>,
 }
 
@@ -19,7 +19,7 @@ struct VersionData {
 struct CategoryMeta {
     key: String,
     name: String,
-    timestamp: u32,
+    timestamp: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -30,12 +30,12 @@ struct Sentence {
     sentence_type: String,
     from: String,
     from_who: Option<String>,
-    length: u32,
+    length: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct CategoryData {
-    timestamp: u32,
+    timestamp: u64,
     sentences: Vec<Sentence>,
 }
 
@@ -72,7 +72,7 @@ pub async fn init_db(db_url: &str) -> Result<(), Error> {
 async fn fetch_category_data(
     key: &String,
     name: &String,
-    timestamp: u32,
+    timestamp: u64,
 ) -> Result<Vec<Sentence>, Error> {
     let cache_path = std::path::Path::new(CACHE_DIR).join(format!("{}.json", key));
 
