@@ -45,7 +45,11 @@ jobs:
       - name: Install ARM cross-compilation tools
         if: contains(matrix.target, 'aarch64') && runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
-      
+        
+      - name: Install musl ARM cross-compilation tools
+        if: contains(matrix.target, 'aarch64') && runner.os == 'Linux' && contains(matrix.target, 'musl')
+        uses: lmq8267/dl-musl@25-02-05
+        
       # 安装 Rust stable 工具链
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
