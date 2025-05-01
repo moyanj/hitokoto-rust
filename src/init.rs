@@ -1,7 +1,8 @@
+use crate::db::table_exists;
 use actix_web::Error;
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateDatabase;
-use sqlx::{AnyPool, any::AnyPoolOptions};
+use sqlx::{AnyPool, any::Any, any::AnyPoolOptions};
 use std::{fs, io::Write};
 
 const VERSION_URL: &str =
@@ -10,7 +11,7 @@ const CACHE_DIR: &str = "./cache";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct VersionData {
-    updated_at: i64,
+    updated_at: u32,
     sentences: Vec<CategoryMeta>,
 }
 
@@ -18,7 +19,7 @@ struct VersionData {
 struct CategoryMeta {
     key: String,
     name: String,
-    timestamp: i64,
+    timestamp: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -29,12 +30,12 @@ struct Sentence {
     sentence_type: String,
     from: String,
     from_who: Option<String>,
-    length: i32,
+    length: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct CategoryData {
-    timestamp: i64,
+    timestamp: u32,
     sentences: Vec<Sentence>,
 }
 
@@ -71,7 +72,7 @@ pub async fn init_db(db_url: &str) -> Result<(), Error> {
 async fn fetch_category_data(
     key: &String,
     name: &String,
-    timestamp: i64,
+    timestamp: u32,
 ) -> Result<Vec<Sentence>, Error> {
     let cache_path = std::path::Path::new(CACHE_DIR).join(format!("{}.json", key));
 
@@ -127,7 +128,7 @@ async fn batch_insert_sentences(
         .bind(&sentence.sentence_type)
         .bind(&sentence.from)
         .bind(&sentence.from_who)
-        .bind(sentence.length)
+        .bind(sentence.length as i32)
         .execute(&mut *tx)
         .await?;
     }
@@ -165,10 +166,10 @@ async fn get_pool(db_url: &str) -> Result<AnyPool, sqlx::Error> {
     // 检查是否是 SQLite 数据库连接
     if db_url.starts_with("sqlite:") {
         // 检查数据库是否存在，不存在则创建
-        if sqlx::sqlite::Sqlite::database_exists(db_url).await? {
-            sqlx::sqlite::Sqlite::drop_database(db_url).await?;
+        if Any::database_exists(db_url).await? {
+            Any::drop_database(db_url).await?;
         }
-        sqlx::sqlite::Sqlite::create_database(db_url).await?;
+        Any::create_database(db_url).await?;
     }
 
     // 创建数据库连接池
@@ -176,6 +177,12 @@ async fn get_pool(db_url: &str) -> Result<AnyPool, sqlx::Error> {
         .max_connections(1)
         .connect(db_url)
         .await?;
+
+    if table_exists(&pool, "hitokoto").await? {
+        sqlx::query(&format!("DROP TABLE {}", "hitokoto"))
+            .execute(&pool)
+            .await?;
+    }
 
     // 创建表结构
     sqlx::query(

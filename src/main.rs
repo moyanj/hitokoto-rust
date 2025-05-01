@@ -63,7 +63,7 @@ struct QueryParams {
 struct Cli {
     /// Server host address
     #[arg(
-        short = 'H',
+        short,
         long,
         value_name = "HOST",
         default_value = "0.0.0.0",
@@ -107,7 +107,6 @@ struct Cli {
 
     /// Maximum number of connections in the database pool
     #[arg(
-        short,
         long,
         value_name = "MAX_CONNECTIONS",
         default_value_t = 10,
@@ -118,7 +117,7 @@ struct Cli {
 
     /// Load data into memory SQLite database
     #[arg(
-        short = 'M',
+        short,
         long,
         help = "Load data into memory SQLite database",
         env = "HITOKOTO_MEMORY"
@@ -188,7 +187,6 @@ async fn main() -> std::io::Result<()> {
     println!("Server running at http://{}", bind_addr);
 
     let app_factory = move || {
-        let req_stats = counter::RequestStats::new();
         let app = App::new() // 显式声明App基础类型
             .app_data(web::Data::new(pool.clone()));
 
@@ -207,6 +205,7 @@ async fn main() -> std::io::Result<()> {
                     .unwrap(),
             ))
         };
+        let req_stats = counter::RequestStats::new();
         app.app_data(web::Data::new(req_stats.clone()))
             .wrap(counter::RequestCounterMiddleware::new(req_stats.clone()))
             .route("/stats", web::get().to(counter::get_stats))
@@ -276,11 +275,12 @@ async fn get_hitokoto_by_uuid(data: web::Data<DbState>, uuid: web::Path<String>)
         });
 
     match hitokoto {
-        Ok(Some(h)) => HttpResponse::Ok().content_type(ContentType::json()).body(h.to_json()),
+        Ok(Some(h)) => HttpResponse::Ok()
+            .content_type(ContentType::json())
+            .body(h.to_json()),
         Ok(None) => HttpResponse::NotFound().body("No hitokoto found with the given uuid"),
         Err(_) => HttpResponse::InternalServerError().body("Internal Server Error"),
     }
-    
 }
 
 #[get("/update_count")]

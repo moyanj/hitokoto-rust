@@ -5,16 +5,14 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
 pub struct DbState {
-    pub pool: AnyPool,
-    pub db_kind: AnyKind,
-    pub count: AtomicI64,
+    pub pool: AnyPool,    // 数据库连接池
+    pub count: AtomicI64, // 总条数
 }
 
 impl Clone for DbState {
     fn clone(&self) -> Self {
         Self {
             pool: self.pool.clone(),
-            db_kind: self.db_kind.clone(),
             count: AtomicI64::new(self.count.load(Ordering::SeqCst)),
         }
     }
@@ -56,11 +54,7 @@ pub async fn get_pool(
         println!("Total records: {}", count.load(Ordering::Relaxed));
     }
 
-    Ok(DbState {
-        pool,
-        db_kind,
-        count,
-    })
+    Ok(DbState { pool, count })
 }
 
 /// 将数据加载到内存中的SQLite数据库
@@ -127,7 +121,6 @@ pub async fn load_data_to_memory(pool: &AnyPool) -> Result<DbState, sqlx::Error>
     pool.close().await;
     Ok(DbState {
         pool: memory_pool,
-        db_kind: AnyKind::Sqlite,
         count,
     })
 }
@@ -158,7 +151,7 @@ pub fn build_query_conditions(params: &QueryParams, state: &DbState) -> (String,
     }
 
     // 用运行时判断替换编译时条件
-    let rand = match state.db_kind {
+    let rand = match state.pool.any_kind() {
         AnyKind::MySql => "RAND()",
         _ => "RANDOM()",
     };
@@ -196,4 +189,26 @@ pub async fn rand_hitokoto_without_params(
 
     // 执行查询
     execute_query_with_params(state, &query, &[]).await
+}
+
+pub async fn table_exists(pool: &AnyPool, table_name: &str) -> Result<bool, sqlx::Error> {
+    let query = match pool.any_kind() {
+        sqlx::any::AnyKind::Postgres => {
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)"
+        }
+        sqlx::any::AnyKind::MySql => {
+            "SELECT COUNT(*) > 0 FROM information_schema.tables WHERE table_name = ?"
+        }
+        sqlx::any::AnyKind::Sqlite => {
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?"
+        }
+        _ => return Err(sqlx::Error::Configuration("Unsupported database".into())),
+    };
+
+    let exists: bool = sqlx::query_scalar(query)
+        .bind(table_name)
+        .fetch_one(pool)
+        .await?;
+
+    Ok(exists)
 }

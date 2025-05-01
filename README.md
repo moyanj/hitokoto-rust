@@ -59,9 +59,10 @@ HITOKOTO_DB="mysql://user:pass@localhost/hitokoto" \
 | `--port/-p`      | HITOKOTO_PORT         | 8080                                     | 监听端口                                 |
 | `--database/-d`  | HITOKOTO_DB           | mysql://root:password@localhost/hitokoto | 数据库连接字符串                         |
 | `--workers/-w`   | HITOKOTO_WORKERS      | CPU 核心数                               | 工作线程数                               |
-| `--memory/-M`    | HITOKOTO_MEMORY       | False                                    | 是否将数据全部加载至内存（极大提升性能） |
+| `--memory/-m`    | HITOKOTO_MEMORY       | False                                    | 是否将数据全部加载至内存（极大提升性能） |
 | `--limiter`      | HITOKOTO_LIMITER      | False                                    | 是否使用限流器                           |
-| `--limiter_rate` | HITOKOTO_LIMITER_RATE | 10                                       | 限流器速率（每秒请求数）                 |
+| `--limiter_rate` | HITOKOTO_LIMITER_RATE | 10                 |限流器速率（每秒请求数）
+|`--max-connections`| HITOKOTO_MAX_CONNECTIONS | 10                                   |限流器速率（每秒请求数）                 |
 
 ## 📡 API 文档
 
@@ -107,7 +108,7 @@ CREATE TABLE hitokoto (
 ## 🧩 高级配置
 
 ### 全部加载至内存
-添加 `--memory`/`-M` 参数，将所有数据加载至内存SQLite数据库，通常可以提高3-10x的性能。
+添加 `--memory`/`-m` 参数，将所有数据加载至内存SQLite数据库，通常可以提高3-10x的性能。
 
 ### 连接池调优
 通过 `--max-connections` 设置连接池大小，推荐公式：  
