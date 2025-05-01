@@ -97,12 +97,6 @@ jobs:
             --config profile.release.strip=true
           ls -lh target/${{ matrix.target }}/release/
       
-      # 二进制优化 (Linux)
-      - name: Strip binaries (Linux)
-        if: contains(matrix.target, 'linux') && runner.os == 'Linux'
-        run: |
-          strip --strip-all target/${{ matrix.target }}/release/hitokoto-rust
-      
       # 上传制品
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
