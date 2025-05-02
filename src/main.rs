@@ -249,16 +249,36 @@ fn make_response(
 #[get("/")]
 async fn get_hitokoto(data: web::Data<DbState>, params: web::Query<QueryParams>) -> impl Responder {
     let encode = params.encode.clone();
+    
+    // 验证 min_length 和 max_length 的合理性
+    if let (Some(min), Some(max)) = (params.min_length, params.max_length) {
+        if min < 0 || max < 0 {
+            return Either::Left(HttpResponse::BadRequest().body("长度参数不能为负数"));
+        }
+        if min > max {
+            return Either::Left(HttpResponse::BadRequest().body("min_length 不能大于 max_length"));
+        }
+        
+        // 检查是否超出数据库中的实际范围
+        let db_min = data.min_length.load(Ordering::Relaxed);
+        let db_max = data.max_length.load(Ordering::Relaxed);
+        
+        if min > db_max || max < db_min {
+            return Either::Left(HttpResponse::BadRequest().body("请求的长度范围超出数据库记录范围"));
+        }
+    }
+    
+    // 如果没有提供任何参数
     if params.c.is_none() && params.min_length.is_none() && params.max_length.is_none() {
         let hitokoto = rand_hitokoto_without_params(&data).await;
-        return make_response(encode, hitokoto);
+        return Either::Right(make_response(encode, hitokoto));
     }
 
     let (query, query_params) = build_query_conditions(&params, data.get_ref());
     let params_slice: Vec<&str> = query_params.iter().map(|s| s.as_str()).collect();
     let hitokoto = execute_query_with_params(&data, &query, &params_slice).await;
 
-    make_response(encode, hitokoto)
+    Either::Right(make_response(encode, hitokoto))
 }
 
 // 新增路由处理函数修改
