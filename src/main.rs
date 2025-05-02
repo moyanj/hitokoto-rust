@@ -304,13 +304,6 @@ async fn get_hitokoto_by_uuid(data: web::Data<DbState>, uuid: web::Path<String>)
 
 #[get("/update_count")]
 async fn update_count(data: web::Data<DbState>) -> impl Responder {
-    let query = "SELECT COUNT(*) FROM hitokoto";
-    let count = sqlx::query_scalar::<_, i32>(query)
-        .fetch_one(&data.pool)
-        .await
-        .unwrap();
-
-    data.count.store(count, Ordering::Relaxed);
-
+    data.update().await.unwrap();
     HttpResponse::Ok().body("Count updated")
 }
