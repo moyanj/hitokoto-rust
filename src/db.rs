@@ -29,16 +29,14 @@ impl DbState {
             .fetch_one(&self.pool)
             .await
             .unwrap();
-    
+
         self.count.store(count, Ordering::Relaxed);
-        
+
         let (max_l, min_l) = get_length_stats(&self.pool).await.unwrap();
         self.max_length.store(max_l, Ordering::Relaxed);
         self.min_length.store(min_l, Ordering::Relaxed);
         Ok(())
-    
     }
-
 }
 
 /// 获取数据库连接池

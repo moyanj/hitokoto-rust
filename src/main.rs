@@ -13,6 +13,7 @@ mod init;
 use db::*;
 
 use actix_governor::{Governor, GovernorConfigBuilder};
+use actix_web::middleware::Compress;
 
 #[cfg(all(feature = "mimalloc", not(target_env = "msvc")))]
 #[global_allocator]
@@ -137,6 +138,14 @@ struct Cli {
     )]
     limiter_rate: u64,
 
+    // Use Compression
+    #[arg(
+        long,
+        help = "Use Compression Middleware",
+        env = "HITOKOTO_COMPRESSION"
+    )]
+    no_compression: bool,
+
     #[cfg(feature = "init")]
     #[arg(long, help = "Initialize database")]
     init: bool,
@@ -154,6 +163,7 @@ async fn main() -> std::io::Result<()> {
     let memory = cli.memory;
     let use_limiter = cli.limiter;
     let limiter_rate = cli.limiter_rate;
+    let no_use_compression = cli.no_compression;
 
     let bind_addr = format!("{}:{}", host, port);
 
@@ -167,7 +177,7 @@ async fn main() -> std::io::Result<()> {
         println!("Database initialized.");
     }
 
-    // 初始化数据库连接池，并设置最大连接数
+    // Initialize database connection pool with max connections
     let pool: DbState = get_pool(&database_url, max_connections, 10, 60)
         .await
         .unwrap();
@@ -178,17 +188,25 @@ async fn main() -> std::io::Result<()> {
     } else {
         pool
     };
+
     if use_limiter {
         println!("Using Limiter with rate {} per second", limiter_rate);
     } else {
         println!("Not using Limiter");
     }
+
+    if !no_use_compression {
+        println!("Using Compression Middleware");
+    } else {
+        println!("Not using Compression Middleware");
+    }
+
     println!("Server running at http://{}", bind_addr);
 
     let app_factory = move || {
-        let app = App::new() // 显式声明App基础类型
-            .app_data(web::Data::new(pool.clone()));
+        let app = App::new().app_data(web::Data::new(pool.clone()));
 
+        // Apply limiter if enabled
         let app = if use_limiter {
             let governor_conf = GovernorConfigBuilder::default()
                 .requests_per_second(limiter_rate)
@@ -204,7 +222,14 @@ async fn main() -> std::io::Result<()> {
                     .unwrap(),
             ))
         };
-        let req_stats = counter::RequestStats::new();
+
+        // Apply compression if enabled
+        let app = if !no_use_compression {
+            app.wrap(Compress::default())
+        } else {
+            app
+        };
+
         app.app_data(web::Data::new(req_stats.clone()))
             .wrap(counter::RequestCounterMiddleware::new(req_stats.clone()))
             .route("/stats", web::get().to(counter::get_stats))
@@ -213,7 +238,7 @@ async fn main() -> std::io::Result<()> {
             .service(get_hitokoto_by_uuid)
     };
 
-    // 启动服务器
+    // Start server
     HttpServer::new(app_factory)
         .bind(bind_addr)?
         .workers(num_cpus)
@@ -249,7 +274,7 @@ fn make_response(
 #[get("/")]
 async fn get_hitokoto(data: web::Data<DbState>, params: web::Query<QueryParams>) -> impl Responder {
     let encode = params.encode.clone();
-    
+
     // 验证 min_length 和 max_length 的合理性
     if let (Some(min), Some(max)) = (params.min_length, params.max_length) {
         if min < 0 || max < 0 {
@@ -258,16 +283,18 @@ async fn get_hitokoto(data: web::Data<DbState>, params: web::Query<QueryParams>)
         if min > max {
             return Either::Left(HttpResponse::BadRequest().body("min_length 不能大于 max_length"));
         }
-        
+
         // 检查是否超出数据库中的实际范围
         let db_min = data.min_length.load(Ordering::Relaxed);
         let db_max = data.max_length.load(Ordering::Relaxed);
-        
+
         if min > db_max || max < db_min {
-            return Either::Left(HttpResponse::BadRequest().body("请求的长度范围超出数据库记录范围"));
+            return Either::Left(
+                HttpResponse::BadRequest().body("请求的长度范围超出数据库记录范围"),
+            );
         }
     }
-    
+
     // 如果没有提供任何参数
     if params.c.is_none() && params.min_length.is_none() && params.max_length.is_none() {
         let hitokoto = rand_hitokoto_without_params(&data).await;
