@@ -63,7 +63,7 @@ struct QueryParams {
 struct Cli {
     /// Server host address
     #[arg(
-        short='H',
+        short = 'H',
         long,
         value_name = "HOST",
         default_value = "0.0.0.0",
@@ -285,7 +285,7 @@ async fn get_hitokoto_by_uuid(data: web::Data<DbState>, uuid: web::Path<String>)
 #[get("/update_count")]
 async fn update_count(data: web::Data<DbState>) -> impl Responder {
     let query = "SELECT COUNT(*) FROM hitokoto";
-    let count = sqlx::query_scalar::<_, i64>(query)
+    let count = sqlx::query_scalar::<_, i32>(query)
         .fetch_one(&data.pool)
         .await
         .unwrap();
