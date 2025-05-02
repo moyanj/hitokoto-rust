@@ -138,14 +138,6 @@ struct Cli {
     )]
     limiter_rate: u64,
 
-    // Use Compression
-    #[arg(
-        long,
-        help = "Use Compression Middleware",
-        env = "HITOKOTO_COMPRESSION"
-    )]
-    no_compression: bool,
-
     #[cfg(feature = "init")]
     #[arg(long, help = "Initialize database")]
     init: bool,
@@ -163,7 +155,6 @@ async fn main() -> std::io::Result<()> {
     let memory = cli.memory;
     let use_limiter = cli.limiter;
     let limiter_rate = cli.limiter_rate;
-    let no_use_compression = cli.no_compression;
 
     let bind_addr = format!("{}:{}", host, port);
 
@@ -195,12 +186,6 @@ async fn main() -> std::io::Result<()> {
         println!("Not using Limiter");
     }
 
-    if !no_use_compression {
-        println!("Using Compression Middleware");
-    } else {
-        println!("Not using Compression Middleware");
-    }
-
     println!("Server running at http://{}", bind_addr);
 
     let app_factory = move || {
@@ -222,15 +207,9 @@ async fn main() -> std::io::Result<()> {
                     .unwrap(),
             ))
         };
-
-        // Apply compression if enabled
-        let app = if !no_use_compression {
-            app.wrap(Compress::default())
-        } else {
-            app
-        };
-
-        app.app_data(web::Data::new(req_stats.clone()))
+        let req_stats = counter::RequestStats::new();
+        app.wrap(Compress::default())
+            .app_data(web::Data::new(req_stats.clone()))
             .wrap(counter::RequestCounterMiddleware::new(req_stats.clone()))
             .route("/stats", web::get().to(counter::get_stats))
             .service(get_hitokoto)
