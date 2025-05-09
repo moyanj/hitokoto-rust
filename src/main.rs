@@ -15,7 +15,7 @@ use db::*;
 use actix_governor::{Governor, GovernorConfigBuilder};
 use actix_web::middleware::Compress;
 
-#[cfg(all(feature = "mimalloc", not(target_env = "msvc")))]
+#[cfg(all(feature = "mimalloc", not(target_os = "windows")))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
