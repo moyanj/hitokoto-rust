@@ -1,5 +1,7 @@
 # hitokoto-rust 🦀
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/moyanj/hitokoto-rust)
+
 基于 Actix-web 和 SQLx 的高性能 Rust「一言」API 服务实现（原项目：[hitokoto-osc/hitokoto-api](https://github.com/hitokoto-osc/hitokoto-api)）。
 
 ## 🚀 功能特性
