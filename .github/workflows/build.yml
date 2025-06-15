@@ -18,35 +18,39 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-C lto=fat"  # 启用LTO和CPU优化
-
+  
+defaults:
+  run:
+    shell: bash
+    
 jobs:
   build:
     name: Build (${{ matrix.target }})
-    runs-on: ${{ contains(matrix.target, 'windows') && 'windows-latest' || 'ubuntu-latest' }}
+    runs-on: ${{ matrix.os }}
+    env:
+      BUILD_CMD: cargo
     strategy:
       matrix:
-        target: 
-          - x86_64-unknown-linux-gnu
-          - x86_64-pc-windows-msvc
-          - x86_64-unknown-linux-musl
-
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            use_cross: false
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            use_cross: false
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            use_cross: false
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            use_cross: true
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            use_cross: true
+            
     steps:
       - uses: actions/checkout@v4
       
-      # 安装 musl-tools (仅 musl 目标需要)
-      - name: Install musl-tools
-        if: matrix.target == 'x86_64-unknown-linux-musl' && runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
-      
-      # 安装 Rust stable 工具链
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-          components: rust-src  # 为LTO提供必要组件
-      
-      # 缓存优化
       - name: Cache dependencies
         uses: actions/cache@v3
         with:
@@ -55,18 +59,40 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.target }}-cargo-
+      
+      # 安装 Rust stable 工具链
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: rust-src, llvm-tools-preview
+      
+      # 安装 musl-tools (仅 musl 目标需要)
+      - name: Install musl-tools
+        if: contains(matrix.target, 'musl') && runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools musl-dev
+      
+      # 安装 cross (用于交叉编译)
+      - name: Install cross
+        if: matrix.use_cross
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+      
+      - name: Overwrite build command env variable
+        if: matrix.use_cross
+        run: echo "BUILD_CMD=cross" >> $GITHUB_ENV
       
       # 构建步骤
       - name: Build Release
         run: |
-          cargo build --target ${{ matrix.target }} --release --all-features --config profile.release.lto=true --config profile.release.codegen-units=1
-          ls target/${{ matrix.target }}/release/
-      
-      # 二进制优化 (Linux)
-      - name: Strip binaries (Linux)
-        if: contains(matrix.target, 'linux') && runner.os == 'Linux'
-        run: |
-          strip target/${{ matrix.target }}/release/hitokoto-rust
+          $BUILD_CMD build --target ${{ matrix.target }} --release --all-features \
+            --config profile.release.lto=true \
+            --config profile.release.codegen-units=1 \
+            --config profile.release.strip=true
+          ls -lh target/${{ matrix.target }}/release/
       
       # 上传制品
       - name: Upload artifacts
@@ -78,4 +104,7 @@ jobs:
             target/${{ matrix.target }}/release/*.exe
             !target/${{ matrix.target }}/release/*.d
             !target/${{ matrix.target }}/release/*.pdb
+            !target/${{ matrix.target }}/release/*.rlib
+          compression-level: 9
           if-no-files-found: error
+          

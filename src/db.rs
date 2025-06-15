@@ -1,22 +1,41 @@
 use crate::{Hitokoto, QueryParams};
 use rand::prelude::*;
 use sqlx::any::{AnyKind, AnyPool, AnyPoolOptions};
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Duration;
 
 pub struct DbState {
-    pub pool: AnyPool,
-    pub db_kind: AnyKind,
-    pub count: AtomicI64,
+    pub pool: AnyPool,         // 数据库连接池
+    pub count: AtomicI32,      // 总条数
+    pub max_length: AtomicI32, // 最大长度
+    pub min_length: AtomicI32, // 最大长度
 }
 
 impl Clone for DbState {
     fn clone(&self) -> Self {
         Self {
             pool: self.pool.clone(),
-            db_kind: self.db_kind.clone(),
-            count: AtomicI64::new(self.count.load(Ordering::SeqCst)),
+            count: AtomicI32::new(self.count.load(Ordering::SeqCst)),
+            max_length: AtomicI32::new(self.max_length.load(Ordering::SeqCst)),
+            min_length: AtomicI32::new(self.min_length.load(Ordering::SeqCst)),
         }
+    }
+}
+
+impl DbState {
+    pub async fn update(&self) -> Result<(), sqlx::Error> {
+        let query = "SELECT COUNT(*) FROM hitokoto";
+        let count = sqlx::query_scalar::<_, i32>(query)
+            .fetch_one(&self.pool)
+            .await
+            .unwrap();
+
+        self.count.store(count, Ordering::Relaxed);
+
+        let (max_l, min_l) = get_length_stats(&self.pool).await.unwrap();
+        self.max_length.store(max_l, Ordering::Relaxed);
+        self.min_length.store(min_l, Ordering::Relaxed);
+        Ok(())
     }
 }
 
@@ -43,11 +62,11 @@ pub async fn get_pool(
     // 获取数据库类型
     let db_kind = pool.any_kind();
 
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM hitokoto")
+    let count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM hitokoto")
         .fetch_one(&pool)
         .await?;
 
-    let count: AtomicI64 = AtomicI64::new(count);
+    let count: AtomicI32 = AtomicI32::new(count);
 
     if count.load(Ordering::Relaxed) == 0 {
         panic!("No data found.");
@@ -56,10 +75,15 @@ pub async fn get_pool(
         println!("Total records: {}", count.load(Ordering::Relaxed));
     }
 
+    let (max_l, min_l) = get_length_stats(&pool).await.unwrap();
+    let max_l = AtomicI32::new(max_l);
+    let min_l = AtomicI32::new(min_l);
+
     Ok(DbState {
         pool,
-        db_kind,
         count,
+        max_length: max_l,
+        min_length: min_l,
     })
 }
 
@@ -119,41 +143,38 @@ pub async fn load_data_to_memory(pool: &AnyPool) -> Result<DbState, sqlx::Error>
         .execute(&memory_pool)
         .await?;
 
-    // 设置PRAGMA
-    sqlx::query(
-        "PRAGMA journal_mode = MEMORY;  -- 内存日志模式
-PRAGMA synchronous = OFF;      -- 禁用同步写入
-PRAGMA locking_mode = EXCLUSIVE; -- 独占锁（只读模式下无害）
-",
-    )
-    .execute(&memory_pool)
-    .await?;
-
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM hitokoto")
+    let count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM hitokoto")
         .fetch_one(&memory_pool)
         .await?;
 
-    let count: AtomicI64 = AtomicI64::new(count);
+    let count: AtomicI32 = AtomicI32::new(count);
+
+    let (max_l, min_l) = get_length_stats(&pool).await.unwrap();
+    let max_l = AtomicI32::new(max_l);
+    let min_l = AtomicI32::new(min_l);
+
     pool.close().await;
     Ok(DbState {
         pool: memory_pool,
-        db_kind: AnyKind::Sqlite,
         count,
+        max_length: max_l,
+        min_length: min_l,
     })
 }
 
 pub fn build_query_conditions(params: &QueryParams, state: &DbState) -> (String, Vec<String>) {
-    let mut conditions = vec!["1=1".to_string()];
-    let mut query_params = vec![];
+    let mut conditions = Vec::new();
+    let mut query_params: Vec<String> = Vec::new();
 
+    // 构建过滤条件（与之前相同）
     if let Some(categories) = &params.c {
         let categories: Vec<&str> = categories.split(',').collect();
         if !categories.is_empty() {
-            conditions.push(format!(
-                "type IN ({})",
-                categories.iter().map(|_| "?").collect::<Vec<_>>().join(",")
-            ));
-            query_params.extend(categories.iter().map(|c| c.to_string()));
+            let placeholders = vec!["?"; categories.len()].join(",");
+            conditions.push(format!("type IN ({})", placeholders));
+            for c in categories {
+                query_params.push(c.to_string());
+            }
         }
     }
 
@@ -167,19 +188,27 @@ pub fn build_query_conditions(params: &QueryParams, state: &DbState) -> (String,
         query_params.push(max.to_string());
     }
 
-    // 用运行时判断替换编译时条件
-    let rand = match state.db_kind {
+    let where_clause = if !conditions.is_empty() {
+        format!("WHERE {}", conditions.join(" AND "))
+    } else {
+        "".to_string()
+    };
+
+    let rand_function = match state.pool.any_kind() {
         AnyKind::MySql => "RAND()",
         _ => "RANDOM()",
     };
-    (
-        format!(
-            "SELECT * FROM hitokoto WHERE {} ORDER BY {} LIMIT 1",
-            conditions.join(" AND "),
-            rand,
-        ),
-        query_params,
-    )
+
+    let sql = format!(
+        "SELECT * FROM (
+            SELECT * FROM hitokoto
+            {where_clause}
+        ) AS sampled
+        ORDER BY {rand_function}
+        LIMIT 1"
+    );
+
+    (sql, query_params)
 }
 
 // 通用查询执行函数
@@ -206,4 +235,40 @@ pub async fn rand_hitokoto_without_params(
 
     // 执行查询
     execute_query_with_params(state, &query, &[]).await
+}
+
+pub async fn table_exists(pool: &AnyPool, table_name: &str) -> Result<bool, sqlx::Error> {
+    let query = match pool.any_kind() {
+        sqlx::any::AnyKind::Postgres => {
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)"
+        }
+        sqlx::any::AnyKind::MySql => {
+            "SELECT COUNT(*) > 0 FROM information_schema.tables WHERE table_name = ?"
+        }
+        sqlx::any::AnyKind::Sqlite => {
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?"
+        }
+        _ => return Err(sqlx::Error::Configuration("Unsupported database".into())),
+    };
+
+    let exists: bool = sqlx::query_scalar(query)
+        .bind(table_name)
+        .fetch_one(pool)
+        .await?;
+
+    Ok(exists)
+}
+
+pub async fn get_length_stats(pool: &AnyPool) -> Result<(i32, i32), sqlx::Error> {
+    // 使用 `query_as` 直接映射到元组
+    let (max, min): (i32, i32) = sqlx::query_as(
+        r#"
+        SELECT MAX(length), MIN(length) 
+        FROM hitokoto
+        "#,
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok((max, min))
 }

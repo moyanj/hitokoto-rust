@@ -1,6 +1,6 @@
 [package]
 name = "hitokoto-rust"
-version = "0.5.0"
+version = "0.6.1"
 edition = "2024"
 
 [features]
@@ -13,7 +13,6 @@ actix-web = "4.10.2"
 clap = { version = "4.5.32", features = ["derive", "env"] }
 num_cpus = "1.16.0"
 serde = { version = "1.0.219", features = ["derive"] }
-sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "all-databases"] }
 mimalloc = { version = "0.1.44", optional = true }
 rand = "0.9.0"
 actix-governor = "0.8.0"
@@ -23,7 +22,9 @@ reqwest = { version = "0.12.15", default-features = false, features = [
     "gzip",
 ], optional = true }
 serde_json = { version = "1.0.140", optional = true }
-
+sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "all-databases"] }
+parking_lot = "0.12.3"
+futures-util = "0.3.31"
 
 [profile.release]
 panic = "abort"

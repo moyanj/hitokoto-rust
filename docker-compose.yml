@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  hitokoto:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+      - DB_HOST="mysql://user:pass@localhost/hitokoto"          # 数据库主机名（使用服务名连接）
+      
+    networks:
+      - app-network
+    depends_on:
+      - mysql
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0            # 使用官方 MySQL 镜像
+    command: --default-authentication-plugin=mysql_native_password  # 兼容旧版认证
+    environment:
+      MYSQL_ROOT_PASSWORD: root_pass       # root 用户密码
+      MYSQL_DATABASE: hitokoto          # 初始化数据库
+      MYSQL_USER: app_user                 # 创建普通用户
+      MYSQL_PASSWORD: app_pass             # 普通用户密码
+    volumes:
+      - mysql_data:/var/lib/mysql          # 数据持久化
+    networks:
+      - app-network
+    ports:
+      - "3306:3306"                        # 可选：暴露到宿主机
+    
+volumes:
+  mysql_data:                             # 声明持久化卷
+
+networks:
+  app-network:                            # 创建专用网络
+    driver: bridge

@@ -7,11 +7,13 @@ use sqlx::FromRow;
 use std::env;
 use std::sync::atomic::Ordering;
 
+mod counter;
 mod db;
 mod init;
 use db::*;
 
 use actix_governor::{Governor, GovernorConfigBuilder};
+use actix_web::middleware::Compress;
 
 #[cfg(all(feature = "mimalloc", not(target_env = "msvc")))]
 #[global_allocator]
@@ -106,7 +108,6 @@ struct Cli {
 
     /// Maximum number of connections in the database pool
     #[arg(
-        short,
         long,
         value_name = "MAX_CONNECTIONS",
         default_value_t = 10,
@@ -117,7 +118,7 @@ struct Cli {
 
     /// Load data into memory SQLite database
     #[arg(
-        short = 'M',
+        short,
         long,
         help = "Load data into memory SQLite database",
         env = "HITOKOTO_MEMORY"
@@ -163,12 +164,11 @@ async fn main() -> std::io::Result<()> {
     #[cfg(feature = "init")]
     if cli.init {
         println!("Initializing database...");
-        let _ = init::init_db(&database_url).await;
+        init::init_db(&database_url).await.unwrap();
         println!("Database initialized.");
-        return Ok(());
     }
 
-    // 初始化数据库连接池，并设置最大连接数
+    // Initialize database connection pool with max connections
     let pool: DbState = get_pool(&database_url, max_connections, 10, 60)
         .await
         .unwrap();
@@ -179,17 +179,19 @@ async fn main() -> std::io::Result<()> {
     } else {
         pool
     };
+
     if use_limiter {
         println!("Using Limiter with rate {} per second", limiter_rate);
     } else {
         println!("Not using Limiter");
     }
+
     println!("Server running at http://{}", bind_addr);
 
     let app_factory = move || {
-        let app = App::new() // 显式声明App基础类型
-            .app_data(web::Data::new(pool.clone()));
+        let app = App::new().app_data(web::Data::new(pool.clone()));
 
+        // Apply limiter if enabled
         let app = if use_limiter {
             let governor_conf = GovernorConfigBuilder::default()
                 .requests_per_second(limiter_rate)
@@ -205,13 +207,17 @@ async fn main() -> std::io::Result<()> {
                     .unwrap(),
             ))
         };
-
-        app.service(get_hitokoto)
+        let req_stats = counter::RequestStats::new();
+        app.wrap(Compress::default())
+            .app_data(web::Data::new(req_stats.clone()))
+            .wrap(counter::RequestCounterMiddleware::new(req_stats.clone()))
+            .route("/stats", web::get().to(counter::get_stats))
+            .service(get_hitokoto)
             .service(update_count)
             .service(get_hitokoto_by_uuid)
     };
 
-    // 启动服务器
+    // Start server
     HttpServer::new(app_factory)
         .bind(bind_addr)?
         .workers(num_cpus)
@@ -247,16 +253,38 @@ fn make_response(
 #[get("/")]
 async fn get_hitokoto(data: web::Data<DbState>, params: web::Query<QueryParams>) -> impl Responder {
     let encode = params.encode.clone();
+
+    // 验证 min_length 和 max_length 的合理性
+    if let (Some(min), Some(max)) = (params.min_length, params.max_length) {
+        if min < 0 || max < 0 {
+            return Either::Left(HttpResponse::BadRequest().body("长度参数不能为负数"));
+        }
+        if min > max {
+            return Either::Left(HttpResponse::BadRequest().body("min_length 不能大于 max_length"));
+        }
+
+        // 检查是否超出数据库中的实际范围
+        let db_min = data.min_length.load(Ordering::Relaxed);
+        let db_max = data.max_length.load(Ordering::Relaxed);
+
+        if min > db_max || max < db_min {
+            return Either::Left(
+                HttpResponse::BadRequest().body("请求的长度范围超出数据库记录范围"),
+            );
+        }
+    }
+
+    // 如果没有提供任何参数
     if params.c.is_none() && params.min_length.is_none() && params.max_length.is_none() {
         let hitokoto = rand_hitokoto_without_params(&data).await;
-        return make_response(encode, hitokoto);
+        return Either::Right(make_response(encode, hitokoto));
     }
 
     let (query, query_params) = build_query_conditions(&params, data.get_ref());
     let params_slice: Vec<&str> = query_params.iter().map(|s| s.as_str()).collect();
     let hitokoto = execute_query_with_params(&data, &query, &params_slice).await;
 
-    make_response(encode, hitokoto)
+    Either::Right(make_response(encode, hitokoto))
 }
 
 // 新增路由处理函数修改
@@ -272,7 +300,9 @@ async fn get_hitokoto_by_uuid(data: web::Data<DbState>, uuid: web::Path<String>)
         });
 
     match hitokoto {
-        Ok(Some(h)) => HttpResponse::Ok().json(h.to_json()),
+        Ok(Some(h)) => HttpResponse::Ok()
+            .content_type(ContentType::json())
+            .body(h.to_json()),
         Ok(None) => HttpResponse::NotFound().body("No hitokoto found with the given uuid"),
         Err(_) => HttpResponse::InternalServerError().body("Internal Server Error"),
     }
@@ -280,13 +310,6 @@ async fn get_hitokoto_by_uuid(data: web::Data<DbState>, uuid: web::Path<String>)
 
 #[get("/update_count")]
 async fn update_count(data: web::Data<DbState>) -> impl Responder {
-    let query = "SELECT COUNT(*) FROM hitokoto";
-    let count = sqlx::query_scalar::<_, i64>(query)
-        .fetch_one(&data.pool)
-        .await
-        .unwrap();
-
-    data.count.store(count, Ordering::Relaxed);
-
+    data.update().await.unwrap();
     HttpResponse::Ok().body("Count updated")
 }

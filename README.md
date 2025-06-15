@@ -1,5 +1,7 @@
 # hitokoto-rust 🦀
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/moyanj/hitokoto-rust)
+
 基于 Actix-web 和 SQLx 的高性能 Rust「一言」API 服务实现（原项目：[hitokoto-osc/hitokoto-api](https://github.com/hitokoto-osc/hitokoto-api)）。
 
 ## 🚀 功能特性
@@ -58,9 +60,11 @@ HITOKOTO_DB="mysql://user:pass@localhost/hitokoto" \
 | `--port/-p`      | HITOKOTO_PORT         | 8080                                     | 监听端口                                 |
 | `--database/-d`  | HITOKOTO_DB           | mysql://root:password@localhost/hitokoto | 数据库连接字符串                         |
 | `--workers/-w`   | HITOKOTO_WORKERS      | CPU 核心数                               | 工作线程数                               |
-| `--memory/-M`    | HITOKOTO_MEMORY       | False                                    | 是否将数据全部加载至内存（极大提升性能） |
+| `--memory/-m`    | HITOKOTO_MEMORY       | False                                    | 是否将数据全部加载至内存（极大提升性能） |
 | `--limiter`      | HITOKOTO_LIMITER      | False                                    | 是否使用限流器                           |
-| `--limiter_rate` | HITOKOTO_LIMITER_RATE | 10                                       | 限流器速率（每秒请求数）                 |
+| `--limiter_rate` | HITOKOTO_LIMITER_RATE | 10                 |限流器速率（每秒请求数）
+|`--max-connections`| HITOKOTO_MAX_CONNECTIONS | 10                                   | 最大数据库连接数                 |
+| `--init`         | -                     | False                                    | 初始化数据库                          |
 
 ## 📡 API 文档
 
@@ -91,22 +95,21 @@ GET /{uuid}
 
 ## 🗄️ 数据库结构
 ```sql
--- 通用表结构（适配不同数据库语法）
-CREATE TABLE hitokoto (
-    id          INT PRIMARY KEY,
-    uuid        VARCHAR(36) UNIQUE NOT NULL,
-    text        TEXT NOT NULL,
-    type        VARCHAR(1) NOT NULL,  -- 分类标识
-    from_source VARCHAR(255) NOT NULL,
-    from_who    VARCHAR(255),
-    length      INT NOT NULL
-);
+CREATE TABLE IF NOT EXISTS hitokoto (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid TEXT UNIQUE NOT NULL,
+    text TEXT NOT NULL,
+    type TEXT NOT NULL,
+    from_source TEXT NOT NULL,
+    from_who TEXT,
+    length INTEGER NOT NULL
+)
 ```
 
 ## 🧩 高级配置
 
 ### 全部加载至内存
-添加 `--memory`/`-M` 参数，将所有数据加载至内存SQLite数据库，通常可以提高3-10x的性能。
+添加 `--memory`/`-m` 参数，将所有数据加载至内存SQLite数据库，通常可以提高3-10x的性能。
 
 ### 连接池调优
 通过 `--max-connections` 设置连接池大小，推荐公式：  

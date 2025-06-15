@@ -17,4 +17,6 @@ target/
 #.idea/
 
 *.db
+*.db-wal
+*.db-shm
 cache/

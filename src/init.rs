@@ -1,6 +1,8 @@
+use crate::db::table_exists;
 use actix_web::Error;
 use serde::{Deserialize, Serialize};
-use sqlx::{AnyPool, any::AnyPoolOptions};
+use sqlx::migrate::MigrateDatabase;
+use sqlx::{AnyPool, any::Any, any::AnyPoolOptions};
 use std::{fs, io::Write};
 
 const VERSION_URL: &str =
@@ -61,7 +63,7 @@ pub async fn init_db(db_url: &str) -> Result<(), Error> {
 
     // 创建索引
     create_indexes(&pool).await.unwrap();
-
+    pool.close().await;
     println!("\n操作完成，总计处理 {} 条记录", total_inserted);
 
     Ok(())
@@ -79,7 +81,7 @@ async fn fetch_category_data(
         let cached_data: CategoryData = serde_json::from_str(&cached_content)?;
 
         // 检查缓存是否需要更新
-        if timestamp > cached_data.timestamp {
+        if timestamp <= cached_data.timestamp {
             println!("缓存的 {} 数据是最新的，无需更新", name);
             return Ok(cached_data.sentences);
         }
@@ -126,7 +128,7 @@ async fn batch_insert_sentences(
         .bind(&sentence.sentence_type)
         .bind(&sentence.from)
         .bind(&sentence.from_who)
-        .bind(sentence.length)
+        .bind(sentence.length as i32)
         .execute(&mut *tx)
         .await?;
     }
@@ -160,12 +162,27 @@ async fn get_version() -> Result<VersionData, reqwest::Error> {
     Ok(version_data)
 }
 
-async fn get_pool(db_url: &String) -> Result<AnyPool, sqlx::Error> {
+async fn get_pool(db_url: &str) -> Result<AnyPool, sqlx::Error> {
+    // 检查是否是 SQLite 数据库连接
+    if db_url.starts_with("sqlite:") {
+        // 检查数据库是否存在，不存在则创建
+        if Any::database_exists(db_url).await? {
+            Any::drop_database(db_url).await?;
+        }
+        Any::create_database(db_url).await?;
+    }
+
     // 创建数据库连接池
     let pool = AnyPoolOptions::new()
-        .max_connections(5)
+        .max_connections(1)
         .connect(db_url)
         .await?;
+
+    if table_exists(&pool, "hitokoto").await? {
+        sqlx::query(&format!("DROP TABLE {}", "hitokoto"))
+            .execute(&pool)
+            .await?;
+    }
 
     let auto_incerment = match pool.any_kind() {
         sqlx::any::AnyKind::Sqlite => "AUTOINCREMENT",
