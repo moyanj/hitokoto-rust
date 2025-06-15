@@ -9,7 +9,7 @@ const CACHE_DIR: &str = "./cache";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct VersionData {
-    updated_at: i32,
+    updated_at: u64,
     sentences: Vec<CategoryMeta>,
 }
 
@@ -17,7 +17,7 @@ struct VersionData {
 struct CategoryMeta {
     key: String,
     name: String,
-    timestamp: i32,
+    timestamp: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -33,7 +33,7 @@ struct Sentence {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct CategoryData {
-    timestamp: i32,
+    timestamp: u64,
     sentences: Vec<Sentence>,
 }
 
@@ -70,7 +70,7 @@ pub async fn init_db(db_url: &str) -> Result<(), Error> {
 async fn fetch_category_data(
     key: &String,
     name: &String,
-    timestamp: i32,
+    timestamp: u64,
 ) -> Result<Vec<Sentence>, Error> {
     let cache_path = std::path::Path::new(CACHE_DIR).join(format!("{}.json", key));
 
@@ -173,6 +173,15 @@ async fn get_pool(db_url: &String) -> Result<AnyPool, sqlx::Error> {
         _ => "AUTO_INCREMENT",
     };
 
+    let truncate_table = match pool.any_kind() {
+        sqlx::any::AnyKind::Sqlite => "DELETE FROM sqlite_sequence WHERE name = 'hitokoto';",
+        sqlx::any::AnyKind::MySql => "TRUNCATE TABLE hitokoto",
+        _ => "TRUNCATE TABLE hitokoto",
+    };
+
+    // 清除旧数据
+    sqlx::query(truncate_table).execute(&pool).await?;
+
     // 创建表结构
     sqlx::query(&format!(
         r#"
@@ -190,11 +199,6 @@ async fn get_pool(db_url: &String) -> Result<AnyPool, sqlx::Error> {
     ))
     .execute(&pool)
     .await?;
-
-    // 清除旧数据
-    sqlx::query("TRUNCATE TABLE hitokoto")
-        .execute(&pool)
-        .await?;
 
     Ok(pool)
 }
