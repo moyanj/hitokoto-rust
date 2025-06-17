@@ -3,6 +3,7 @@ use actix_web::Error;
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{AnyPool, any::Any, any::AnyPoolOptions};
+use std::process::exit;
 use std::{fs, io::Write};
 
 const VERSION_URL: &str =
@@ -184,38 +185,41 @@ async fn get_pool(db_url: &str) -> Result<AnyPool, sqlx::Error> {
             .await?;
     }
 
-    let auto_incerment = match pool.any_kind() {
-        sqlx::any::AnyKind::Sqlite => "AUTOINCREMENT",
-        sqlx::any::AnyKind::MySql => "AUTO_INCREMENT",
-        _ => "AUTO_INCREMENT",
+    let create_table_sql = match pool.any_kind() {
+        sqlx::any::AnyKind::Sqlite => {
+            format!(
+                r#"
+                CREATE TABLE IF NOT EXISTS hitokoto (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    uuid TEXT UNIQUE NOT NULL,
+                    text TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    from_source TEXT NOT NULL,
+                    from_who TEXT,
+                    length INTEGER NOT NULL
+                )
+                "#
+            )
+        }
+        sqlx::any::AnyKind::MySql => {
+            format!(
+                r#"
+                CREATE TABLE IF NOT EXISTS hitokoto (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    uuid VARCHAR(36) UNIQUE NOT NULL,
+                    text TEXT NOT NULL,
+                    type VARCHAR(1) NOT NULL,
+                    from_source TEXT NOT NULL,
+                    from_who TEXT,
+                    length INT NOT NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                "#,
+            )
+        }
+        _ => unreachable!(),
     };
 
-    let truncate_table = match pool.any_kind() {
-        sqlx::any::AnyKind::Sqlite => "DELETE FROM sqlite_sequence WHERE name = 'hitokoto';",
-        sqlx::any::AnyKind::MySql => "TRUNCATE TABLE hitokoto",
-        _ => "TRUNCATE TABLE hitokoto",
-    };
-
-    // 清除旧数据
-    sqlx::query(truncate_table).execute(&pool).await?;
-
-    // 创建表结构
-    sqlx::query(&format!(
-        r#"
-    CREATE TABLE IF NOT EXISTS hitokoto (
-        id INT PRIMARY KEY {},
-        uuid VARCHAR(36) UNIQUE NOT NULL,
-        text TEXT NOT NULL,
-        type VARCHAR(1) NOT NULL,
-        from_source TEXT NOT NULL,
-        from_who TEXT,
-        length INT NOT NULL
-    )
-    "#,
-        auto_incerment
-    ))
-    .execute(&pool)
-    .await?;
+    sqlx::query(&create_table_sql).execute(&pool).await?;
 
     Ok(pool)
 }

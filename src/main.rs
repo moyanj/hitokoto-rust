@@ -161,6 +161,11 @@ async fn main() -> std::io::Result<()> {
     println!("Welcome to hitokoto-rust!");
     println!("Version: {}", env!("CARGO_PKG_VERSION"));
 
+    if database_url.starts_with("postgres") {
+        println!("不支持PostgreSQL数据库");
+        return Ok(());
+    }
+
     #[cfg(feature = "init")]
     if cli.init {
         println!("Initializing database...");
