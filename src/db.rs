@@ -149,7 +149,7 @@ pub async fn load_data_to_memory(pool: &AnyPool) -> Result<DbState, sqlx::Error>
 
     let count: AtomicI32 = AtomicI32::new(count);
 
-    let (max_l, min_l) = get_length_stats(&pool).await.unwrap();
+    let (max_l, min_l) = get_length_stats(pool).await.unwrap();
     let max_l = AtomicI32::new(max_l);
     let min_l = AtomicI32::new(min_l);
 

@@ -3,7 +3,6 @@ use actix_web::Error;
 use serde::{Deserialize, Serialize};
 use sqlx::migrate::MigrateDatabase;
 use sqlx::{AnyPool, any::Any, any::AnyPoolOptions};
-use std::process::exit;
 use std::{fs, io::Write};
 
 const VERSION_URL: &str =
@@ -41,7 +40,7 @@ struct CategoryData {
 }
 
 pub async fn init_db(db_url: &str) -> Result<(), Error> {
-    let pool = get_pool(&db_url.to_string()).await.unwrap();
+    let pool = get_pool(db_url).await.unwrap();
 
     // 创建缓存目录（处理错误）
     fs::create_dir_all(CACHE_DIR)?;
@@ -100,7 +99,7 @@ async fn fetch_category_data(
 
     // 保存到缓存
     let cache_data = CategoryData {
-        timestamp: timestamp,
+        timestamp,
         sentences: sentences.clone(),
     };
 
@@ -129,7 +128,7 @@ async fn batch_insert_sentences(
         .bind(&sentence.sentence_type)
         .bind(&sentence.from)
         .bind(&sentence.from_who)
-        .bind(sentence.length as i32)
+        .bind(sentence.length)
         .execute(&mut *tx)
         .await?;
     }
@@ -186,9 +185,7 @@ async fn get_pool(db_url: &str) -> Result<AnyPool, sqlx::Error> {
     }
 
     let create_table_sql = match pool.any_kind() {
-        sqlx::any::AnyKind::Sqlite => {
-            format!(
-                r#"
+        sqlx::any::AnyKind::Sqlite => r#"
                 CREATE TABLE IF NOT EXISTS hitokoto (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     uuid TEXT UNIQUE NOT NULL,
@@ -199,11 +196,8 @@ async fn get_pool(db_url: &str) -> Result<AnyPool, sqlx::Error> {
                     length INTEGER NOT NULL
                 )
                 "#
-            )
-        }
-        sqlx::any::AnyKind::MySql => {
-            format!(
-                r#"
+        .to_string(),
+        sqlx::any::AnyKind::MySql => r#"
                 CREATE TABLE IF NOT EXISTS hitokoto (
                     id INT PRIMARY KEY AUTO_INCREMENT,
                     uuid VARCHAR(36) UNIQUE NOT NULL,
@@ -213,9 +207,8 @@ async fn get_pool(db_url: &str) -> Result<AnyPool, sqlx::Error> {
                     from_who TEXT,
                     length INT NOT NULL
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-                "#,
-            )
-        }
+                "#
+        .to_string(),
         _ => unreachable!(),
     };
 
