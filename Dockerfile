@@ -1,5 +1,5 @@
 # 第一阶段：构建阶段（使用 musl 静态编译）
-FROM rust:1.73-alpine as builder
+FROM rust:alpine AS builder
 
 # 安装构建依赖
 RUN apk add --no-cache \

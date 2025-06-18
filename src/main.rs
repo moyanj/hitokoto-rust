@@ -216,6 +216,7 @@ async fn main() -> std::io::Result<()> {
         app.wrap(Compress::default())
             .app_data(web::Data::new(req_stats.clone()))
             .wrap(counter::RequestCounterMiddleware::new(req_stats.clone()))
+            .wrap(actix_cors::Cors::permissive())
             .route("/stats", web::get().to(counter::get_stats))
             .service(get_hitokoto)
             .service(update_count)
