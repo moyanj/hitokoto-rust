@@ -88,10 +88,7 @@ jobs:
       # 构建步骤
       - name: Build Release
         run: |
-          $BUILD_CMD build --target ${{ matrix.target }} --release --all-features \
-            --config profile.release.lto=true \
-            --config profile.release.codegen-units=1 \
-            --config profile.release.strip=true
+          $BUILD_CMD build --target ${{ matrix.target }} --release --all-features
           ls -lh target/${{ matrix.target }}/release/
       
       # 上传制品

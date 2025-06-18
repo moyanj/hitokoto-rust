@@ -13,11 +13,6 @@ WORKDIR /app
 
 # 缓存依赖
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src && \
-    echo "fn main() {}" > src/main.rs && \
-    cargo build --release --target x86_64-unknown-linux-musl && \
-    rm -rf src
-
 # 复制源码
 COPY src ./src
 
@@ -28,18 +23,18 @@ RUN cargo build --release \
     strip target/x86_64-unknown-linux-musl/release/hitokoto-rust
 
 # 第二阶段：运行时镜像（最小化）
-FROM scratch
+FROM alpine:latest
 
-# 复制时区数据
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+RUN apk update \
+    && apk add --no-cache ca-certificates tzdata \
+    && rm -rf /var/cache/apk/* \
+    && mkdir /app
 
 # 复制可执行文件
-COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/hitokoto-rust /
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/release/hitokoto-rust /app/hitokoto-rust
 
-# 设置环境变量
-ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 EXPOSE 8080
 
 # 启动命令
-CMD ["/hitokoto-rust"]
+CMD ["/app/hitokoto-rust", "--init"]
