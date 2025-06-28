@@ -1,6 +1,7 @@
 name: Publish Docker Image on Release
 
 on:
+  workflow_dispatch: # 手动触发工作流
   release:
     types: [published] # 当 Release 发布时触发
 
