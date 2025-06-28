@@ -50,7 +50,7 @@ pub async fn init_db(db_url: &str) -> Result<(), Error> {
     let mut total_inserted = 0;
 
     for category in version_data.sentences {
-        println!("\n正在处理分类: {}", category.name);
+        println!("\nProcessing category: {}", category.name);
 
         let sentences =
             fetch_category_data(&category.key, &category.name, category.timestamp).await?;
@@ -64,7 +64,10 @@ pub async fn init_db(db_url: &str) -> Result<(), Error> {
     // 创建索引
     create_indexes(&pool).await.unwrap();
     pool.close().await;
-    println!("\n操作完成，总计处理 {} 条记录", total_inserted);
+    println!(
+        "\nOperation completed, a total of {} records were processed",
+        total_inserted
+    );
 
     Ok(())
 }
