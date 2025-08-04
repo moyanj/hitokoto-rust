@@ -184,7 +184,9 @@ async fn main() -> std::io::Result<()> {
     // 加载数据到内存
     let pool = if memory {
         println!("Loading data into memory SQLite database...");
-        load_data_to_memory(&pool.pool).await.unwrap()
+        load_data_to_memory(&pool.pool, max_connections)
+            .await
+            .unwrap()
     } else {
         pool
     };

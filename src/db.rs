@@ -105,19 +105,22 @@ pub async fn get_pool(
 }
 
 /// 将数据加载到内存中的SQLite数据库
-pub async fn load_data_to_memory(pool: &AnyPool) -> Result<DbState, sqlx::Error> {
+pub async fn load_data_to_memory(
+    pool: &AnyPool,
+    max_connections: u32,
+) -> Result<DbState, sqlx::Error> {
     // 创建内存中的SQLite数据库连接池
     let memory_pool = AnyPoolOptions::new()
-        .max_connections(1) // 内存数据库通常只需要一个连接
+        .max_connections(max_connections) // 内存数据库通常只需要一个连接
         .connect("sqlite::memory:?cache=shared")
         .await?;
 
     // 创建表结构
     sqlx::query(
         r#"
-        CREATE TABLE hitokoto (
-            id INTEGER PRIMARY KEY,
-            uuid TEXT NOT NULL,
+        CREATE TABLE IF NOT EXISTS hitokoto (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uuid TEXT UNIQUE NOT NULL,
             text TEXT NOT NULL,
             type TEXT NOT NULL,
             from_source TEXT NOT NULL,
