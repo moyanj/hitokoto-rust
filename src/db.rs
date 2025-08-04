@@ -198,6 +198,14 @@ pub fn build_query_conditions(params: &QueryParams, state: &DbState) -> (String,
             let placeholders = vec!["?"; categories.len()].join(",");
             conditions.push(format!("type IN ({})", placeholders));
             for c in categories {
+                // 如果categories不在[a,b,c,d,e,f,g,h,i,j,k,l]中则作为a
+                let c = if vec!["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"]
+                    .contains(&c)
+                {
+                    c
+                } else {
+                    "a"
+                };
                 query_params.push(c.to_string());
             }
         }
