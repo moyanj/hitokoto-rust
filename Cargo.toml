@@ -30,7 +30,7 @@ actix-cors = "0.7.1"
 [profile.release]
 panic = "abort"
 lto = true
-strip = false
-debug = true
+strip = true
+debug = false
 codegen-units = 1
 opt-level = 3
