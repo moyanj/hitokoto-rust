@@ -261,7 +261,10 @@ fn make_response(
             }
         }
         Ok(None) => Either::Right(HttpResponse::NotFound().body("No hitokoto found")),
-        Err(_) => Either::Right(HttpResponse::InternalServerError().body("Internal Server Error")),
+        Err(e) => {
+            eprintln!("Error: {:?}", e);
+            Either::Right(HttpResponse::InternalServerError().body("Internal Server Error"))
+        }
     }
 }
 
@@ -323,13 +326,19 @@ async fn get_hitokoto_by_uuid(data: web::Data<DbState>, uuid: web::Path<String>)
             .content_type(ContentType::json())
             .body(h.to_json()),
         Ok(None) => HttpResponse::NotFound().body("No hitokoto found with the given uuid"),
-        Err(_) => HttpResponse::InternalServerError().body("Internal Server Error"),
+        Err(e) => {
+            eprintln!("Error: {:?}", e);
+            HttpResponse::InternalServerError().body("Internal Server Error")
+        }
     }
 }
 
 #[get("/update")]
 async fn update_count(data: web::Data<DbState>) -> impl Responder {
-    data.update().await.unwrap();
+    if let Err(e) = data.update().await {
+        eprintln!("Database update error: {}", e);
+        return HttpResponse::InternalServerError().body("Internal Server Error");
+    }
     println!("Metadata updated");
     HttpResponse::Ok().body("Metadata updated successfully")
 }
