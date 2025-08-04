@@ -1,4 +1,5 @@
 use crate::{Hitokoto, QueryParams};
+use arc_swap::ArcSwap;
 use rand::prelude::*;
 use sqlx::any::{AnyKind, AnyPool, AnyPoolOptions};
 use std::sync::Arc;
@@ -6,11 +7,11 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Duration;
 
 pub struct DbState {
-    pub pool: AnyPool,         // 数据库连接池
-    pub count: AtomicI32,      // 总条数
-    pub max_length: AtomicI32, // 最大长度
-    pub min_length: AtomicI32, // 最大长度
-    pub uuids: Arc<Vec<String>>,
+    pub pool: AnyPool,               // 数据库连接池
+    pub count: AtomicI32,            // 总条数
+    pub max_length: AtomicI32,       // 最大长度
+    pub min_length: AtomicI32,       // 最大长度
+    pub uuids: ArcSwap<Vec<String>>, // UUID列表
 }
 
 impl Clone for DbState {
@@ -20,7 +21,7 @@ impl Clone for DbState {
             count: AtomicI32::new(self.count.load(Ordering::SeqCst)),
             max_length: AtomicI32::new(self.max_length.load(Ordering::SeqCst)),
             min_length: AtomicI32::new(self.min_length.load(Ordering::SeqCst)),
-            uuids: self.uuids.clone(),
+            uuids: ArcSwap::new(self.uuids.load().clone()),
         }
     }
 }
@@ -38,6 +39,12 @@ impl DbState {
         let (max_l, min_l) = get_length_stats(&self.pool).await.unwrap();
         self.max_length.store(max_l, Ordering::Relaxed);
         self.min_length.store(min_l, Ordering::Relaxed);
+
+        let uuids = sqlx::query_scalar::<_, String>("SELECT uuid FROM hitokoto")
+            .fetch_all(&self.pool)
+            .await?;
+        self.uuids.store(Arc::new(uuids));
+
         Ok(())
     }
 }
@@ -93,7 +100,7 @@ pub async fn get_pool(
         count,
         max_length: max_l,
         min_length: min_l,
-        uuids: uuids,
+        uuids: ArcSwap::new(uuids),
     })
 }
 
@@ -126,7 +133,9 @@ pub async fn load_data_to_memory(pool: &AnyPool) -> Result<DbState, sqlx::Error>
     let hitokotos = sqlx::query_as::<_, Hitokoto>("SELECT * FROM hitokoto")
         .fetch_all(pool)
         .await?;
-    let uuid_list: Vec<String> = hitokotos.iter().map(|h| h.uuid.clone()).collect();
+
+    let uuid_list: Vec<String> = hitokotos.iter().map(|h| h.uuid.clone()).collect(); // 创建UUID列表
+
     for hitokoto in hitokotos {
         sqlx::query(
             r#"
@@ -144,6 +153,7 @@ pub async fn load_data_to_memory(pool: &AnyPool) -> Result<DbState, sqlx::Error>
         .execute(&memory_pool)
         .await?;
     }
+
     // 创建UUID索引
     sqlx::query("CREATE INDEX idx_uuid ON hitokoto (uuid)")
         .execute(&memory_pool)
@@ -153,6 +163,7 @@ pub async fn load_data_to_memory(pool: &AnyPool) -> Result<DbState, sqlx::Error>
         .execute(&memory_pool)
         .await?;
 
+    // 获取数据库统计信息
     let count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM hitokoto")
         .fetch_one(&memory_pool)
         .await?;
@@ -163,13 +174,13 @@ pub async fn load_data_to_memory(pool: &AnyPool) -> Result<DbState, sqlx::Error>
     let max_l = AtomicI32::new(max_l);
     let min_l = AtomicI32::new(min_l);
 
-    pool.close().await;
+    pool.close().await; // 关闭原始数据库连接
     Ok(DbState {
         pool: memory_pool,
         count,
         max_length: max_l,
         min_length: min_l,
-        uuids: Arc::new(uuid_list),
+        uuids: ArcSwap::new(Arc::new(uuid_list)),
     })
 }
 
@@ -238,15 +249,16 @@ pub async fn execute_query_with_params(
 pub async fn rand_hitokoto_without_params(
     state: &DbState,
 ) -> Result<Option<Hitokoto>, sqlx::Error> {
-    if state.uuids.len() > 0 {
+    let uuids = state.uuids.load();
+    if uuids.len() > 0 {
         // 获取随机索引
-        let rand_index = rand::rng().random_range(0..state.uuids.len());
+        let rand_index = rand::rng().random_range(0..uuids.len());
 
         // 构造带 WHERE 条件的查询
         let query = "SELECT * FROM hitokoto WHERE uuid = ?";
 
         // 执行查询
-        return execute_query_with_params(state, query, &[&state.uuids[rand_index]]).await;
+        return execute_query_with_params(state, query, &[&uuids[rand_index]]).await;
     }
 
     // 生成随机索引
@@ -262,6 +274,7 @@ pub async fn rand_hitokoto_without_params(
 pub async fn table_exists(pool: &AnyPool, table_name: &str) -> Result<bool, sqlx::Error> {
     let query = match pool.any_kind() {
         sqlx::any::AnyKind::Postgres => {
+            // PostgreSQL不支持，但留着不删
             "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)"
         }
         sqlx::any::AnyKind::MySql => {
@@ -282,7 +295,6 @@ pub async fn table_exists(pool: &AnyPool, table_name: &str) -> Result<bool, sqlx
 }
 
 pub async fn get_length_stats(pool: &AnyPool) -> Result<(i32, i32), sqlx::Error> {
-    // 使用 `query_as` 直接映射到元组
     let (max, min): (i32, i32) = sqlx::query_as(
         r#"
         SELECT MAX(length), MIN(length)

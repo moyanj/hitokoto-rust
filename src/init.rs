@@ -5,6 +5,7 @@ use sqlx::migrate::MigrateDatabase;
 use sqlx::{AnyPool, any::Any, any::AnyPoolOptions};
 use std::{fs, io::Write};
 
+// TODO: 改成可以变的
 const VERSION_URL: &str =
     "https://github.com/hitokoto-osc/sentences-bundle/raw/refs/heads/master/version.json";
 const CACHE_DIR: &str = "./cache";
@@ -42,7 +43,7 @@ struct CategoryData {
 pub async fn init_db(db_url: &str) -> Result<(), Error> {
     let pool = get_pool(db_url).await.unwrap();
 
-    // 创建缓存目录（处理错误）
+    // 创建缓存目录
     fs::create_dir_all(CACHE_DIR)?;
 
     let version_data = get_version().await.unwrap();

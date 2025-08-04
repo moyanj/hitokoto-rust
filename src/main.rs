@@ -31,6 +31,9 @@ struct Hitokoto {
 }
 
 impl Hitokoto {
+    /// 转换为JSON
+    ///
+    /// 事实证明手写JSON序列化比SIMD-JSON快
     pub fn to_json(&self) -> String {
         let from_who = match &self.from_who {
             Some(who) => format!("\"{}\"", who),
@@ -62,7 +65,7 @@ struct QueryParams {
 #[derive(Parser)]
 #[clap(name = "hitokoto-rust", version = env!("CARGO_PKG_VERSION"), about = "A hitokoto server in Rust", long_about = None)]
 struct Cli {
-    /// Server host address
+    /// Server host
     #[arg(
         short = 'H',
         long,
@@ -173,11 +176,12 @@ async fn main() -> std::io::Result<()> {
         println!("Database initialized.");
     }
 
-    // Initialize database connection pool with max connections
+    // 初始化数据库连接池
     let pool: DbState = get_pool(&database_url, max_connections, 10, 60)
         .await
         .unwrap();
 
+    // 加载数据到内存
     let pool = if memory {
         println!("Loading data into memory SQLite database...");
         load_data_to_memory(&pool.pool).await.unwrap()
@@ -185,6 +189,7 @@ async fn main() -> std::io::Result<()> {
         pool
     };
 
+    // 打印限流信息
     if use_limiter {
         println!("Using Limiter with rate {} per second", limiter_rate);
     } else {
@@ -194,9 +199,10 @@ async fn main() -> std::io::Result<()> {
     println!("Server running at http://{}", bind_addr);
 
     let app_factory = move || {
+        // 创建应用 + 添加数据库连接池
         let app = App::new().app_data(web::Data::new(pool.clone()));
 
-        // Apply limiter if enabled
+        // 限流器设置
         let app = if use_limiter {
             let governor_conf = GovernorConfigBuilder::default()
                 .requests_per_second(limiter_rate)
@@ -212,18 +218,21 @@ async fn main() -> std::io::Result<()> {
                     .unwrap(),
             ))
         };
+
+        //  请求统计
         let req_stats = counter::RequestStats::new();
-        app.wrap(Compress::default())
-            .app_data(web::Data::new(req_stats.clone()))
-            .wrap(counter::RequestCounterMiddleware::new(req_stats.clone()))
-            .wrap(actix_cors::Cors::permissive())
-            .route("/stats", web::get().to(counter::get_stats))
-            .service(get_hitokoto)
-            .service(update_count)
-            .service(get_hitokoto_by_uuid)
+
+        app.wrap(Compress::default()) // 压缩
+            .app_data(web::Data::new(req_stats.clone())) // 请求统计信息
+            .wrap(counter::RequestCounterMiddleware::new(req_stats.clone())) // 请求统计
+            .wrap(actix_cors::Cors::permissive()) // 跨域
+            .route("/stats", web::get().to(counter::get_stats)) // 获取统计信息
+            .service(get_hitokoto) // 获取随机hitokoto
+            .service(update_count) // 更新元数据
+            .service(get_hitokoto_by_uuid) // 获取指定uuid的hitokoto
     };
 
-    // Start server
+    // 启动！
     HttpServer::new(app_factory)
         .bind(bind_addr)?
         .workers(num_cpus)
@@ -298,7 +307,6 @@ async fn get_hitokoto(data: web::Data<DbState>, params: web::Query<QueryParams>)
     Either::Right(make_response(encode, hitokoto))
 }
 
-// 新增路由处理函数修改
 #[get("/{uuid}")]
 async fn get_hitokoto_by_uuid(data: web::Data<DbState>, uuid: web::Path<String>) -> impl Responder {
     let query = "SELECT * FROM hitokoto WHERE uuid = ? LIMIT 1";
@@ -319,8 +327,9 @@ async fn get_hitokoto_by_uuid(data: web::Data<DbState>, uuid: web::Path<String>)
     }
 }
 
-#[get("/update_count")]
+#[get("/update")]
 async fn update_count(data: web::Data<DbState>) -> impl Responder {
     data.update().await.unwrap();
-    HttpResponse::Ok().body("Count updated")
+    println!("Metadata updated");
+    HttpResponse::Ok().body("Metadata updated successfully")
 }
