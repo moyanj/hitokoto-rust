@@ -1,6 +1,7 @@
 use crate::{Hitokoto, QueryParams};
 use rand::prelude::*;
 use sqlx::any::{AnyKind, AnyPool, AnyPoolOptions};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::Duration;
 
@@ -9,6 +10,7 @@ pub struct DbState {
     pub count: AtomicI32,      // 总条数
     pub max_length: AtomicI32, // 最大长度
     pub min_length: AtomicI32, // 最大长度
+    pub uuids: Arc<Vec<String>>,
 }
 
 impl Clone for DbState {
@@ -18,6 +20,7 @@ impl Clone for DbState {
             count: AtomicI32::new(self.count.load(Ordering::SeqCst)),
             max_length: AtomicI32::new(self.max_length.load(Ordering::SeqCst)),
             min_length: AtomicI32::new(self.min_length.load(Ordering::SeqCst)),
+            uuids: self.uuids.clone(),
         }
     }
 }
@@ -79,11 +82,18 @@ pub async fn get_pool(
     let max_l = AtomicI32::new(max_l);
     let min_l = AtomicI32::new(min_l);
 
+    // 加载UUID列表
+    let uuids = sqlx::query_scalar::<_, String>("SELECT uuid FROM hitokoto")
+        .fetch_all(&pool)
+        .await?;
+    let uuids = Arc::new(uuids);
+
     Ok(DbState {
         pool,
         count,
         max_length: max_l,
         min_length: min_l,
+        uuids: uuids,
     })
 }
 
@@ -116,7 +126,7 @@ pub async fn load_data_to_memory(pool: &AnyPool) -> Result<DbState, sqlx::Error>
     let hitokotos = sqlx::query_as::<_, Hitokoto>("SELECT * FROM hitokoto")
         .fetch_all(pool)
         .await?;
-
+    let uuid_list: Vec<String> = hitokotos.iter().map(|h| h.uuid.clone()).collect();
     for hitokoto in hitokotos {
         sqlx::query(
             r#"
@@ -159,6 +169,7 @@ pub async fn load_data_to_memory(pool: &AnyPool) -> Result<DbState, sqlx::Error>
         count,
         max_length: max_l,
         min_length: min_l,
+        uuids: Arc::new(uuid_list),
     })
 }
 
@@ -227,6 +238,17 @@ pub async fn execute_query_with_params(
 pub async fn rand_hitokoto_without_params(
     state: &DbState,
 ) -> Result<Option<Hitokoto>, sqlx::Error> {
+    if state.uuids.len() > 0 {
+        // 获取随机索引
+        let rand_index = rand::rng().random_range(0..state.uuids.len());
+
+        // 构造带 WHERE 条件的查询
+        let query = "SELECT * FROM hitokoto WHERE uuid = ?";
+
+        // 执行查询
+        return execute_query_with_params(state, query, &[&state.uuids[rand_index]]).await;
+    }
+
     // 生成随机索引
     let rand_index = rand::rng().random_range(0..state.count.load(Ordering::Relaxed));
 
@@ -263,7 +285,7 @@ pub async fn get_length_stats(pool: &AnyPool) -> Result<(i32, i32), sqlx::Error>
     // 使用 `query_as` 直接映射到元组
     let (max, min): (i32, i32) = sqlx::query_as(
         r#"
-        SELECT MAX(length), MIN(length) 
+        SELECT MAX(length), MIN(length)
         FROM hitokoto
         "#,
     )
